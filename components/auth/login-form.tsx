@@ -1,54 +1,40 @@
 'use client'
 
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowRight, Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ROLE_LABELS } from '@/lib/permissions'
-import { db, useDB } from '@/lib/store'
-import type { Role } from '@/lib/types'
-import { cn } from '@/lib/utils'
-
-const DEMO: Array<{ role: Role; email: string; password: string }> = [
-  { role: 'admin', email: 'admin@scolaris.edu', password: 'admin123' },
-  { role: 'directeur', email: 'directeur@scolaris.edu', password: 'directeur123' },
-  { role: 'enseignant', email: 'enseignant@scolaris.edu', password: 'enseignant123' },
-  { role: 'comptable', email: 'comptable@scolaris.edu', password: 'comptable123' },
-  { role: 'secretaire', email: 'secretaire@scolaris.edu', password: 'secretaire123' },
-]
+import { getApiErrorMessage, login } from '@/lib/api'
+import { db } from '@/lib/store'
 
 export function LoginForm() {
   const router = useRouter()
-  const data = useDB()
-  const [email, setEmail] = useState('')
+  const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [show, setShow] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  useEffect(() => {
-    if (data?.session) router.replace('/tableau-de-bord')
-  }, [data?.session, router])
-
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setError('Veuillez saisir une adresse e-mail valide.')
-    if (password.length < 6) return setError('Le mot de passe doit contenir au moins 6 caractères.')
+    if (!identifier.trim()) return setError('Veuillez saisir votre e-mail ou identifiant.')
+    if (!password) return setError('Veuillez saisir votre mot de passe.')
     setLoading(true)
-    window.setTimeout(() => {
-      const result = db.login(email, password)
-      if (!result.ok) {
-        setLoading(false)
-        setError(result.error)
-        return
-      }
-      toast.success(`Bienvenue, ${result.user.name}`)
+
+    try {
+      const user = await login(identifier, password)
+      db.loginWithUser(user)
+      toast.success(`Bienvenue, ${user.name}`)
       router.push('/tableau-de-bord')
-    }, 600)
+    } catch (loginError) {
+      setError(getApiErrorMessage(loginError))
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -60,10 +46,10 @@ export function LoginForm() {
 
       <form onSubmit={submit} noValidate className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="email">Adresse e-mail</Label>
+          <Label htmlFor="identifier">E-mail ou identifiant</Label>
           <div className="relative">
             <Mail className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input id="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="vous@scolaris.edu" className="h-11 pl-10" />
+            <Input id="identifier" type="text" autoComplete="username" value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="vous@scolaris.edu" className="h-11 pl-10" />
           </div>
         </div>
         <div className="flex flex-col gap-1.5">
@@ -88,33 +74,6 @@ export function LoginForm() {
         </Button>
       </form>
 
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-          <span className="h-px flex-1 bg-border" />
-          Comptes de démonstration
-          <span className="h-px flex-1 bg-border" />
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {DEMO.map((d) => (
-            <button
-              key={d.role}
-              type="button"
-              onClick={() => {
-                setEmail(d.email)
-                setPassword(d.password)
-                setError('')
-              }}
-              className={cn(
-                'rounded-xl border bg-card px-3 py-2.5 text-left text-xs transition-all hover:-translate-y-0.5 hover:border-gold/60 hover:shadow-sm',
-                email === d.email && 'border-gold bg-gold/5 ring-2 ring-gold/20',
-              )}
-            >
-              <span className="block font-semibold text-foreground">{ROLE_LABELS[d.role]}</span>
-              <span className="block truncate text-muted-foreground">{d.password}</span>
-            </button>
-          ))}
-        </div>
-      </div>
     </div>
   )
 }

@@ -41,13 +41,13 @@ export default function EnrollmentsPage() {
     { name: 'schoolYear', label: 'Année scolaire', required: true },
     { name: 'date', label: 'Date du dossier', type: 'date', required: true },
     { name: 'type', label: 'Type', type: 'select', options: [{ value: 'Nouvelle', label: 'Nouvelle inscription' }, { value: 'Réinscription', label: 'Réinscription' }], required: true },
-    { name: 'fee', label: "Frais d'inscription (FCFA)", type: 'number', min: 0, required: true },
+    { name: 'fee', label: `Frais d'inscription (${data.settings.currency})`, type: 'number', min: 0, required: true },
     { name: 'status', label: 'Décision', type: 'select', options: [{ value: 'en attente', label: 'En attente' }, { value: 'validée', label: 'Validée' }, { value: 'rejetée', label: 'Rejetée' }], required: true },
   ]
   const editing = crud.editing
   const initial = {
     studentId: editing?.studentId ?? '', classId: editing?.classId ?? '', schoolYear: editing?.schoolYear ?? data.settings.schoolYear,
-    date: editing?.date ?? todayISO(), type: editing?.type ?? 'Nouvelle', fee: String(editing?.fee ?? 50000), status: editing?.status ?? 'en attente',
+    date: editing?.date ?? todayISO(), type: editing?.type ?? 'Nouvelle', fee: String(editing?.fee ?? 50), status: editing?.status ?? 'en attente',
   }
   const columns: Column<Enrollment>[] = [
     { key: 'student', header: 'Élève', sortValue: (item) => studentById.get(item.studentId)?.lastName ?? '', cell: (item) => {
@@ -58,7 +58,7 @@ export default function EnrollmentsPage() {
     { key: 'year', header: 'Année scolaire', sortValue: (item) => item.schoolYear, cell: (item) => item.schoolYear },
     { key: 'type', header: 'Dossier', cell: (item) => item.type },
     { key: 'date', header: 'Date', sortValue: (item) => item.date, cell: (item) => formatDate(item.date) },
-    { key: 'fee', header: 'Frais', sortValue: (item) => item.fee, cell: (item) => <span className="font-medium tabular-nums">{formatMoney(item.fee)}</span> },
+    { key: 'fee', header: 'Frais', sortValue: (item) => item.fee, cell: (item) => <span className="font-medium tabular-nums">{formatMoney(item.fee, data.settings.currency)}</span> },
     { key: 'status', header: 'Décision', sortValue: (item) => item.status, cell: (item) => <StatusBadge status={item.status} /> },
     { key: 'actions', header: '', className: 'w-12', cell: (item) => <RowActions onEdit={editable ? () => crud.openEdit(item) : undefined} onDelete={editable ? () => setDeleting(item) : undefined} /> },
   ]
@@ -76,7 +76,7 @@ export default function EnrollmentsPage() {
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Dossiers" value={String(data.enrollments.length)} icon={UserPlus} />
         <StatCard label="À traiter" value={String(pending)} icon={UserX} tone="gold" delay={60} />
-        <StatCard label="Validés · frais associés" value={formatMoney(validated.reduce((sum, item) => sum + item.fee, 0))} icon={UserCheck} tone="success" delay={120} />
+        <StatCard label="Validés · frais associés" value={formatMoney(validated.reduce((sum, item) => sum + item.fee, 0), data.settings.currency)} icon={UserCheck} tone="success" delay={120} />
       </div>
       <Toolbar search={search} onSearch={setSearch} placeholder="Élève, matricule, classe, année…">
         <SimpleSelect ariaLabel="Filtrer par décision" value={statusFilter} onValueChange={setStatusFilter} options={[{ value: 'all', label: 'Toutes les décisions' }, { value: 'en attente', label: 'En attente' }, { value: 'validée', label: 'Validées' }, { value: 'rejetée', label: 'Rejetées' }]} />

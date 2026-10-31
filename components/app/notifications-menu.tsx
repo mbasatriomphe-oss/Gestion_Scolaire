@@ -27,7 +27,6 @@ export function NotificationsMenu() {
         <Bell />
         {unread > 0 && (
           <span className="absolute top-1 right-1 flex size-4 items-center justify-center rounded-full bg-gold text-[9px] font-bold text-gold-foreground">
-            <span className="absolute inset-0 animate-ping rounded-full bg-gold/60" />
             <span className="relative">{unread > 9 ? '9+' : unread}</span>
           </span>
         )}
@@ -36,7 +35,7 @@ export function NotificationsMenu() {
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div>
             <p className="text-sm font-semibold">Notifications</p>
-            <p className="text-xs text-muted-foreground">{unread} non lue(s) · temps réel</p>
+            <p className="text-xs text-muted-foreground">{unread} non lue(s)</p>
           </div>
           <Button variant="ghost" size="sm" onClick={() => db.markAllRead()} disabled={!unread}>
             <CheckCheck />

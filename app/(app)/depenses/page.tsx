@@ -34,7 +34,7 @@ export default function ExpensesPage() {
   const fields: FieldConfig[] = [
     { name: 'label', label: 'Libellé', required: true },
     { name: 'category', label: 'Catégorie', type: 'select', options: categories.map((value) => ({ value, label: value })), required: true },
-    { name: 'amount', label: 'Montant (FCFA)', type: 'number', min: 1, required: true },
+    { name: 'amount', label: `Montant (${data.settings.currency})`, type: 'number', min: 1, required: true },
     { name: 'date', label: 'Date', type: 'date', required: true },
     { name: 'supplier', label: 'Bénéficiaire / fournisseur', required: true },
     { name: 'method', label: 'Mode de paiement', type: 'select', options: methods.map((value) => ({ value, label: value })), required: true },
@@ -47,7 +47,7 @@ export default function ExpensesPage() {
     { key: 'category', header: 'Catégorie', sortValue: (expense) => expense.category, cell: (expense) => expense.category },
     { key: 'date', header: 'Date', sortValue: (expense) => expense.date, cell: (expense) => formatDate(expense.date) },
     { key: 'method', header: 'Mode', headClassName: 'hidden md:table-cell', className: 'hidden md:table-cell', cell: (expense) => expense.method },
-    { key: 'amount', header: 'Montant', sortValue: (expense) => expense.amount, cell: (expense) => <span className="font-medium tabular-nums">{formatMoney(expense.amount)}</span> },
+    { key: 'amount', header: 'Montant', sortValue: (expense) => expense.amount, cell: (expense) => <span className="font-medium tabular-nums">{formatMoney(expense.amount, data.settings.currency)}</span> },
     { key: 'status', header: 'Statut', sortValue: (expense) => expense.status, cell: (expense) => <StatusBadge status={expense.status} /> },
     { key: 'actions', header: '', className: 'w-12', cell: (expense) => <RowActions onEdit={editable ? () => crud.openEdit(expense) : undefined} onDelete={editable ? () => setDeleting(expense) : undefined} /> },
   ]
@@ -63,9 +63,9 @@ export default function ExpensesPage() {
         </>
       } />
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Dépenses réglées" value={formatMoney(paid.reduce((sum, expense) => sum + expense.amount, 0))} icon={Wallet} tone="danger" />
+        <StatCard label="Dépenses réglées" value={formatMoney(paid.reduce((sum, expense) => sum + expense.amount, 0), data.settings.currency)} icon={Wallet} tone="danger" />
         <StatCard label="Opérations réglées" value={String(paid.length)} icon={Receipt} delay={60} />
-        <StatCard label="À payer" value={formatMoney(pending.reduce((sum, expense) => sum + expense.amount, 0))} icon={Clock3} tone="gold" delay={120} />
+        <StatCard label="À payer" value={formatMoney(pending.reduce((sum, expense) => sum + expense.amount, 0), data.settings.currency)} icon={Clock3} tone="gold" delay={120} />
       </div>
       <Toolbar search={search} onSearch={setSearch} placeholder="Libellé, catégorie, fournisseur…">
         <SimpleSelect ariaLabel="Filtrer par statut" value={statusFilter} onValueChange={setStatusFilter} options={[{ value: 'all', label: 'Tous les statuts' }, { value: 'payée', label: 'Payées' }, { value: 'en attente', label: 'En attente' }]} />

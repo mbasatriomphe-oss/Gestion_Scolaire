@@ -4,6 +4,7 @@ import {
   CalendarCheck,
   CalendarDays,
   ClipboardList,
+  ClipboardCheck,
   FileText,
   GraduationCap,
   LayoutDashboard,
@@ -23,6 +24,7 @@ export type ModuleKey =
   | 'enseignants'
   | 'classes'
   | 'cours'
+  | 'affectations'
   | 'emplois-du-temps'
   | 'presences'
   | 'notes'
@@ -52,6 +54,7 @@ export const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
       { key: 'enseignants', label: 'Enseignants', href: '/enseignants', icon: Users },
       { key: 'classes', label: 'Classes', href: '/classes', icon: School },
       { key: 'cours', label: 'Cours', href: '/cours', icon: BookOpen },
+      { key: 'affectations', label: 'Affectations', href: '/affectations', icon: ClipboardCheck },
       { key: 'emplois-du-temps', label: 'Emplois du temps', href: '/emplois-du-temps', icon: CalendarDays },
       { key: 'presences', label: 'Présences', href: '/presences', icon: CalendarCheck },
     ],
@@ -103,6 +106,7 @@ const ACCESS: Record<Role, Partial<Record<ModuleKey, Access>>> = {
     eleves: 'read',
     classes: 'read',
     cours: 'read',
+    affectations: 'read',
     'emplois-du-temps': 'read',
     presences: 'edit',
     notes: 'edit',
@@ -122,6 +126,7 @@ const ACCESS: Record<Role, Partial<Record<ModuleKey, Access>>> = {
     enseignants: 'edit',
     classes: 'edit',
     cours: 'read',
+    affectations: 'edit',
     'emplois-du-temps': 'edit',
     presences: 'edit',
     inscriptions: 'edit',

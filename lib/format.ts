@@ -1,15 +1,24 @@
-export const CURRENCY = 'FCFA'
-
 const moneyFormatter = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 })
 
-export function formatMoney(n: number) {
-  return `${moneyFormatter.format(n)} ${CURRENCY}`
+export function formatMoney(n: number, currency = 'USD') {
+  const code = currency.trim()
+  if (code.toUpperCase() === 'FCFA') return `${moneyFormatter.format(n)} FCFA`
+
+  try {
+    return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: code, maximumFractionDigits: 0 }).format(n)
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error
+    return `${moneyFormatter.format(n)} ${code}`.trim()
+  }
 }
 
-export function formatCompactMoney(n: number) {
-  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace('.', ',')} M`
-  if (Math.abs(n) >= 1_000) return `${Math.round(n / 1_000)} k`
-  return String(n)
+export function formatCompactMoney(n: number, currency = 'USD') {
+  const amount = Math.abs(n) >= 1_000_000
+    ? `${(n / 1_000_000).toFixed(1).replace('.', ',')} M`
+    : Math.abs(n) >= 1_000
+      ? `${Math.round(n / 1_000)} k`
+      : String(n)
+  return `${amount} ${currency}`
 }
 
 export function formatDate(iso: string | null | undefined, opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short', year: 'numeric' }) {

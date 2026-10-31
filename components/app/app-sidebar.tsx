@@ -29,6 +29,7 @@ export function SidebarNav({ role, onNavigate }: { role: Role; onNavigate?: () =
                     <li key={item.key}>
                       <Link
                         href={item.href}
+                        prefetch={false}
                         onClick={onNavigate}
                         aria-current={active ? 'page' : undefined}
                         className={cn(

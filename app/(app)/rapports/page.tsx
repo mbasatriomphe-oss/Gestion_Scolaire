@@ -48,45 +48,45 @@ export default function ReportsPage() {
         </>
       } />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Recettes encaissées" value={formatMoney(receipts)} icon={ArrowDownRight} tone="success" />
-        <StatCard label="Dépenses réglées" value={formatMoney(expenses)} icon={ArrowUpRight} tone="danger" delay={60} />
-        <StatCard label="Solde net" value={formatMoney(receipts - expenses)} icon={CircleDollarSign} tone={receipts >= expenses ? 'success' : 'danger'} delay={120} />
-        <StatCard label="En attente" value={formatMoney(pendingAmount)} icon={Banknote} hint={`${pendingCount} opération(s)`} tone="gold" delay={180} />
+        <StatCard label="Recettes encaissées" value={formatMoney(receipts, data.settings.currency)} icon={ArrowDownRight} tone="success" />
+        <StatCard label="Dépenses réglées" value={formatMoney(expenses, data.settings.currency)} icon={ArrowUpRight} tone="danger" delay={60} />
+        <StatCard label="Solde net" value={formatMoney(receipts - expenses, data.settings.currency)} icon={CircleDollarSign} tone={receipts >= expenses ? 'success' : 'danger'} delay={120} />
+        <StatCard label="En attente" value={formatMoney(pendingAmount, data.settings.currency)} icon={Banknote} hint={`${pendingCount} opération(s)`} tone="gold" delay={180} />
       </div>
       <div className="grid gap-4 xl:grid-cols-3">
-        <Panel title="Évolution mensuelle" description={`Opérations réglées en ${year}`} className="xl:col-span-2"><FinanceChart data={monthlyData} /></Panel>
+        <Panel title="Évolution mensuelle" description={`Opérations réglées en ${year}`} className="xl:col-span-2"><FinanceChart data={monthlyData} currency={data.settings.currency} /></Panel>
         <Panel title="À surveiller" description="Opérations non réglées sur la période">
           <div className="flex flex-col gap-4">
-            <div className="flex items-end justify-between border-b pb-3"><span className="text-sm text-muted-foreground">Paiements élèves</span><span className="font-semibold tabular-nums">{formatMoney(pendingPayments.reduce((sum, item) => sum + item.amount, 0))}</span></div>
-            <div className="flex items-end justify-between border-b pb-3"><span className="text-sm text-muted-foreground">Dépenses à régler</span><span className="font-semibold tabular-nums">{formatMoney(pendingExpenses.reduce((sum, item) => sum + item.amount, 0))}</span></div>
+            <div className="flex items-end justify-between border-b pb-3"><span className="text-sm text-muted-foreground">Paiements élèves</span><span className="font-semibold tabular-nums">{formatMoney(pendingPayments.reduce((sum, item) => sum + item.amount, 0), data.settings.currency)}</span></div>
+            <div className="flex items-end justify-between border-b pb-3"><span className="text-sm text-muted-foreground">Dépenses à régler</span><span className="font-semibold tabular-nums">{formatMoney(pendingExpenses.reduce((sum, item) => sum + item.amount, 0), data.settings.currency)}</span></div>
             <p className="text-xs text-muted-foreground">Les opérations annulées ne sont pas comptées dans les recettes ou dépenses réglées.</p>
           </div>
         </Panel>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Recettes par nature" description={`Encaissements confirmés · ${year}`}><CategoryBreakdown items={paymentCategories} /></Panel>
-        <Panel title="Dépenses par catégorie" description={`Dépenses réglées · ${year}`}><CategoryBreakdown items={expenseCategories} /></Panel>
+        <Panel title="Recettes par nature" description={`Encaissements confirmés · ${year}`}><CategoryBreakdown items={paymentCategories} currency={data.settings.currency} /></Panel>
+        <Panel title="Dépenses par catégorie" description={`Dépenses réglées · ${year}`}><CategoryBreakdown items={expenseCategories} currency={data.settings.currency} /></Panel>
       </div>
       <Panel title="Période couverte" description={`${transactions.length} opération(s) enregistrée(s) en ${year}`}>
         <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
           <div><p className="text-xs text-muted-foreground">Paiements</p><p className="mt-1 font-semibold">{yearPayments.length}</p></div>
           <div><p className="text-xs text-muted-foreground">Dépenses</p><p className="mt-1 font-semibold">{yearExpenses.length}</p></div>
-          <div><p className="text-xs text-muted-foreground">Recettes réglées</p><p className="mt-1 font-semibold">{formatMoney(receipts)}</p></div>
-          <div><p className="text-xs text-muted-foreground">Dépenses réglées</p><p className="mt-1 font-semibold">{formatMoney(expenses)}</p></div>
+          <div><p className="text-xs text-muted-foreground">Recettes réglées</p><p className="mt-1 font-semibold">{formatMoney(receipts, data.settings.currency)}</p></div>
+          <div><p className="text-xs text-muted-foreground">Dépenses réglées</p><p className="mt-1 font-semibold">{formatMoney(expenses, data.settings.currency)}</p></div>
         </div>
       </Panel>
     </>
   )
 }
 
-function CategoryBreakdown({ items }: { items: Array<{ category: string; amount: number }> }) {
+function CategoryBreakdown({ items, currency }: { items: Array<{ category: string; amount: number }>; currency: string }) {
   const maximum = Math.max(1, ...items.map((item) => item.amount))
   if (!items.length) return <p className="py-8 text-center text-sm text-muted-foreground">Aucune opération réglée sur cette période.</p>
   return (
     <ul className="flex flex-col gap-4">
       {items.map((item) => (
         <li key={item.category}>
-          <div className="mb-1.5 flex items-center justify-between gap-3 text-sm"><span>{item.category}</span><span className="font-medium tabular-nums">{formatMoney(item.amount)}</span></div>
+          <div className="mb-1.5 flex items-center justify-between gap-3 text-sm"><span>{item.category}</span><span className="font-medium tabular-nums">{formatMoney(item.amount, currency)}</span></div>
           <div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-chart-2" style={{ width: `${(item.amount / maximum) * 100}%` }} /></div>
         </li>
       ))}

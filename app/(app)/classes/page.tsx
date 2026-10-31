@@ -12,7 +12,8 @@ import { SimpleSelect } from '@/components/app/simple-select'
 import { matches, Toolbar } from '@/components/app/toolbar'
 import { useCanEdit } from '@/hooks/use-permission'
 import { useCrudState } from '@/hooks/use-crud-state'
-import { fmtGrade, studentTermAverages } from '@/lib/academics'
+import { fmtGrade, studentSemesterAverages } from '@/lib/academics'
+import { formatMoney } from '@/lib/format'
 import { LEVELS } from '@/lib/seed'
 import { db, useDB } from '@/lib/store'
 import type { SchoolClass } from '@/lib/types'
@@ -30,7 +31,7 @@ export default function ClassesPage() {
     () =>
       data.classes.map((c) => {
         const students = data.students.filter((s) => s.classId === c.id)
-        const avgs = studentTermAverages(data, c.id, 'T1').map((r) => r.general).filter((v): v is number => v !== null)
+        const avgs = studentSemesterAverages(data, c.id, 'S1').map((r) => r.general).filter((v): v is number => v !== null)
         return { klass: c, size: students.length, girls: students.filter((s) => s.gender === 'F').length, avg: avgs.length ? avgs.reduce((a, b) => a + b, 0) / avgs.length : null }
       }),
     [data],
@@ -45,8 +46,16 @@ export default function ClassesPage() {
       placeholder: '6ème A',
       validate: (v) => (data.classes.some((c) => c.name.toLowerCase() === v.toLowerCase() && c.id !== crud.editing?.id) ? 'Une classe porte déjà ce nom.' : undefined),
     },
-    { name: 'level', label: 'Niveau', type: 'select', required: true, options: LEVELS.map((l) => ({ value: l, label: l })) },
+    { name: 'level', label: 'Année / niveau', type: 'select', required: true, options: LEVELS.map((l) => ({ value: l, label: l })) },
+    { name: 'stage', label: 'Cycle', type: 'select', required: true, options: [{ value: 'orientation', label: 'Cycle d’orientation' }, { value: 'option', label: 'Humanités avec option' }] },
+    {
+      name: 'option',
+      label: 'Option (si humanités)',
+      placeholder: 'Scientifique, Pédagogie…',
+      validate: (value, values) => values.stage === 'option' && !value ? 'Précisez l’option de cette classe.' : undefined,
+    },
     { name: 'room', label: 'Salle', required: true, placeholder: 'Salle 101' },
+    { name: 'annualTuition', label: `Frais annuels par élève (${data.settings.currency})`, type: 'number', required: true, min: 0, step: 1 },
     {
       name: 'capacity',
       label: 'Capacité',
@@ -69,7 +78,7 @@ export default function ClassesPage() {
       <PageHeader
         eyebrow="Organisation"
         title="Classes"
-        description="Effectifs, salles, professeurs principaux et niveau de performance."
+        description="Cycle d’orientation, options des humanités, frais annuels et effectifs."
         actions={
           editable && (
             <Button onClick={crud.openCreate}>
@@ -95,12 +104,12 @@ export default function ClassesPage() {
             >
               <header className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold tracking-wide text-gold uppercase">{klass.level}</p>
+                  <p className="text-xs font-semibold tracking-wide text-gold uppercase">{klass.level}{klass.option ? ` · ${klass.option}` : ''}</p>
                   <h2 className="font-serif text-2xl font-semibold">{klass.name}</h2>
                 </div>
                 <div className="text-right">
                   <p className="font-mono text-lg font-semibold tabular-nums">{fmtGrade(avg)}</p>
-                  <p className="text-[11px] text-muted-foreground">moy. T1</p>
+                  <p className="text-[11px] text-muted-foreground">moy. S1</p>
                 </div>
               </header>
               <div>
@@ -128,6 +137,11 @@ export default function ClassesPage() {
                   <dt className="sr-only">Salle</dt>
                   <dd>{klass.room}</dd>
                 </div>
+                <div className="flex items-center gap-2">
+                  <span className="size-4 text-center text-xs font-bold text-muted-foreground" aria-hidden="true">$</span>
+                  <dt className="sr-only">Frais annuels</dt>
+                  <dd>{formatMoney(klass.annualTuition ?? data.settings.tuitionByLevel[klass.level] ?? 0, data.settings.currency)} / an</dd>
+                </div>
               </dl>
               <footer className="mt-auto flex items-center gap-2 border-t pt-4">
                 <Button nativeButton={false} variant="outline" size="sm" className="flex-1" render={<Link href={`/emplois-du-temps?classe=${klass.id}`} />}>
@@ -154,9 +168,9 @@ export default function ClassesPage() {
         onOpenChange={crud.setFormOpen}
         title={e ? `Modifier ${e.name}` : 'Nouvelle classe'}
         fields={fields}
-        initial={{ name: e?.name ?? '', level: e?.level ?? '', room: e?.room ?? '', capacity: e ? String(e.capacity) : '40', headTeacherId: e?.headTeacherId ?? '' }}
+        initial={{ name: e?.name ?? '', level: e?.level ?? '', stage: e?.stage ?? 'orientation', option: e?.option ?? '', room: e?.room ?? '', annualTuition: String(e?.annualTuition ?? data.settings.tuitionByLevel[e?.level ?? ''] ?? 0), capacity: e ? String(e.capacity) : '40', headTeacherId: e?.headTeacherId ?? '' }}
         onSubmit={(v) => {
-          const payload = { ...v, capacity: Number(v.capacity) }
+          const payload = { ...v, capacity: Number(v.capacity), annualTuition: Number(v.annualTuition), stage: v.stage as SchoolClass['stage'] }
           if (e) {
             db.update('classes', e.id, payload)
             toast.success('Classe mise à jour.')

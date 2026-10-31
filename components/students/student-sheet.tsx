@@ -5,7 +5,7 @@ import { Cake, Mail, MapPin, Phone, User } from 'lucide-react'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Avatar } from '@/components/app/person-cell'
 import { StatusBadge } from '@/components/app/status-badge'
-import { fmtGrade, studentTermAverages, TERM_LABELS, TERMS } from '@/lib/academics'
+import { fmtGrade, SEMESTERS, SEMESTER_LABELS, studentSemesterAverages } from '@/lib/academics'
 import { formatDate, formatMoney } from '@/lib/format'
 import { useDB } from '@/lib/store'
 import type { Student } from '@/lib/types'
@@ -23,11 +23,14 @@ function StudentDetails({ student }: { student: Student }) {
   const klass = data.classes.find((c) => c.id === student.classId)
 
   const info = useMemo(() => {
-    const averages = TERMS.map((t) => ({ term: t, avg: studentTermAverages(data, student.classId, t).find((r) => r.student.id === student.id) }))
+    const averages = SEMESTERS.map((semester) => ({
+      semester,
+      avg: studentSemesterAverages(data, student.classId, semester).find((r) => r.student.id === student.id),
+    }))
     const att = data.attendance.filter((a) => a.studentId === student.id)
     const payments = data.payments.filter((p) => p.studentId === student.id).sort((a, b) => b.date.localeCompare(a.date))
     const paid = payments.filter((p) => p.status === 'payé' && p.category === 'Scolarité').reduce((a, p) => a + p.amount, 0)
-    const due = data.settings.tuitionByLevel[klass?.level ?? ''] ?? 0
+    const due = klass?.annualTuition ?? data.settings.tuitionByLevel[klass?.level ?? ''] ?? 0
     return {
       averages,
       absences: att.filter((a) => a.status === 'absent').length,
@@ -43,10 +46,10 @@ function StudentDetails({ student }: { student: Student }) {
     <>
       <SheetHeader className="border-b pb-5">
         <div className="flex items-center gap-4">
-          <Avatar name={`${student.firstName} ${student.lastName}`} className="size-14 text-base ring-2 ring-gold/40" />
+          <Avatar name={`${student.firstName} ${student.lastName} ${student.middleName ?? ''}`} className="size-14 text-base ring-2 ring-gold/40" />
           <div className="flex flex-col gap-1">
             <SheetTitle className="font-serif text-xl">
-              {student.firstName} {student.lastName}
+              {student.firstName} {student.lastName} {student.middleName}
             </SheetTitle>
             <SheetDescription>
               {student.matricule} · {klass?.name ?? 'Sans classe'}
@@ -76,6 +79,7 @@ function StudentDetails({ student }: { student: Student }) {
           <dl className="flex flex-col gap-2.5 text-sm">
             {[
               { icon: Cake, label: 'Naissance', value: formatDate(student.birthDate) },
+              { icon: MapPin, label: 'Lieu de naissance', value: student.birthPlace || '—' },
               { icon: User, label: 'Parent', value: student.parentName },
               { icon: Phone, label: 'Téléphone', value: student.parentPhone },
               { icon: Mail, label: 'E-mail', value: student.email || '—' },
@@ -93,10 +97,11 @@ function StudentDetails({ student }: { student: Student }) {
         <section>
           <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Résultats</h3>
           <div className="grid grid-cols-3 gap-2">
-            {info.averages.map(({ term, avg }) => (
-              <div key={term} className="rounded-xl border p-3">
-                <p className="text-[11px] text-muted-foreground">{TERM_LABELS[term]}</p>
+            {info.averages.map(({ semester, avg }) => (
+              <div key={semester} className="rounded-xl border p-3">
+                <p className="text-[11px] text-muted-foreground">{SEMESTER_LABELS[semester]}</p>
                 <p className="mt-1 font-mono text-base font-semibold tabular-nums">{fmtGrade(avg?.general)}</p>
+                {!avg?.complete && <p className="text-[11px] text-muted-foreground">Cotes incomplètes</p>}
                 {avg?.rank && (
                   <p className="text-[11px] text-muted-foreground">
                     Rang {avg.rank}/{avg.classSize}
@@ -111,7 +116,7 @@ function StudentDetails({ student }: { student: Student }) {
           <div className="mb-2 flex items-end justify-between">
             <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Scolarité</h3>
             <span className="text-xs text-muted-foreground">
-              {formatMoney(info.paid)} / {formatMoney(info.due)}
+              {formatMoney(info.paid, data.settings.currency)} / {formatMoney(info.due, data.settings.currency)}
             </span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-muted">
@@ -128,7 +133,7 @@ function StudentDetails({ student }: { student: Student }) {
                   </span>
                 </div>
                 <div className="flex flex-col items-end gap-1">
-                  <span className="font-semibold tabular-nums">{formatMoney(p.amount)}</span>
+                  <span className="font-semibold tabular-nums">{formatMoney(p.amount, data.settings.currency)}</span>
                   <StatusBadge status={p.status} />
                 </div>
               </li>

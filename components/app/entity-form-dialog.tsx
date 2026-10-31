@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { getApiErrorMessage } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { SimpleSelect, type Option } from './simple-select'
 
@@ -34,7 +35,7 @@ interface EntityFormDialogProps {
   fields: FieldConfig[]
   initial: FieldValues
   submitLabel?: string
-  onSubmit: (values: FieldValues) => void | string
+  onSubmit: (values: FieldValues) => void | string | Promise<void | string>
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
@@ -73,11 +74,12 @@ function EntityForm({ title, description, fields, initial, submitLabel = 'Enregi
 
   const setValue = (name: string, value: string) => {
     setValues((v) => ({ ...v, [name]: value }))
-    if (errors[name]) setErrors((e) => ({ ...e, [name]: '' }))
+    if (errors[name] || errors._form) setErrors((e) => ({ ...e, [name]: '', _form: '' }))
   }
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    if (submitting) return
     const next: Record<string, string> = {}
     for (const f of fields) {
       const err = validateField(f, values[f.name] ?? '', values)
@@ -86,16 +88,19 @@ function EntityForm({ title, description, fields, initial, submitLabel = 'Enregi
     setErrors(next)
     if (Object.values(next).some(Boolean)) return
     setSubmitting(true)
-    window.setTimeout(() => {
+    try {
       const trimmed = Object.fromEntries(Object.entries(values).map(([k, v]) => [k, typeof v === 'string' ? v.trim() : v]))
-      const result = onSubmit(trimmed)
-      setSubmitting(false)
+      const result = await onSubmit(trimmed)
       if (typeof result === 'string') {
         setErrors({ _form: result })
         return
       }
       onOpenChange(false)
-    }, 350)
+    } catch (error) {
+      setErrors({ _form: getApiErrorMessage(error) })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -145,7 +150,7 @@ function EntityForm({ title, description, fields, initial, submitLabel = 'Enregi
       </div>
       {errors._form && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{errors._form}</p>}
       <DialogFooter>
-        <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+        <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
           Annuler
         </Button>
         <Button type="submit" disabled={submitting} className="min-w-28">

@@ -12,9 +12,10 @@ import type {
   TimetableEntry,
   AppUser,
   AppNotification,
+  TeachingAssignment,
 } from './types'
 
-export const DB_VERSION = 1
+export const DB_VERSION = 2
 
 function mulberry32(seed: number) {
   return () => {
@@ -58,12 +59,24 @@ const COURSE_DEFS: Array<Omit<Course, 'id' | 'teacherId'>> = [
 ]
 
 const CLASS_DEFS = [
-  ['6ème A', '6ème'], ['6ème B', '6ème'], ['5ème A', '5ème'], ['5ème B', '5ème'],
-  ['4ème A', '4ème'], ['4ème B', '4ème'], ['3ème A', '3ème'], ['3ème B', '3ème'],
-  ['2nde A', '2nde'], ['2nde C', '2nde'], ['1ère D', '1ère'], ['Terminale D', 'Terminale'],
+  ['1ère année CO A', '1ère année CO', 'orientation', ''],
+  ['1ère année CO B', '1ère année CO', 'orientation', ''],
+  ['2e année CO A', '2e année CO', 'orientation', ''],
+  ['2e année CO B', '2e année CO', 'orientation', ''],
+  ['1ère Humanités Pédagogie', '1ère Humanités', 'option', 'Pédagogie'],
+  ['1ère Humanités Scientifique', '1ère Humanités', 'option', 'Scientifique'],
+  ['2e Humanités Pédagogie', '2e Humanités', 'option', 'Pédagogie'],
+  ['2e Humanités Scientifique', '2e Humanités', 'option', 'Scientifique'],
+  ['3e Humanités Commerciale', '3e Humanités', 'option', 'Commerciale et gestion'],
+  ['3e Humanités Littéraire', '3e Humanités', 'option', 'Littéraire'],
+  ['4e Humanités Scientifique', '4e Humanités', 'option', 'Scientifique'],
+  ['4e Humanités Pédagogie', '4e Humanités', 'option', 'Pédagogie'],
 ] as const
 
-export const LEVELS = ['6ème', '5ème', '4ème', '3ème', '2nde', '1ère', 'Terminale']
+export const LEVELS = [...new Set([
+  '6ème', '5ème', '4ème', '3ème', '2nde', '1ère', 'Terminale',
+  ...CLASS_DEFS.map(([, level]) => level),
+])]
 
 export const TIME_SLOTS = [
   ['08:00', '09:00'],
@@ -99,20 +112,34 @@ export function createSeed(): Database {
       specialty,
       status: i === 12 ? 'congé' : 'actif',
       hiredAt: daysAgo(int(200, 3600)),
-      salary: int(28, 46) * 10000,
+      salary: int(2800, 4600),
     })
   })
 
   const courses: Course[] = COURSE_DEFS.map((c, i) => ({ ...c, id: `c${i + 1}`, teacherId: `t${i + 1}` }))
 
-  const classes: SchoolClass[] = CLASS_DEFS.map(([name, level], i) => ({
+  const annualFees = [400, 400, 450, 450, 500, 550, 550, 600, 650, 600, 700, 650]
+  const classes: SchoolClass[] = CLASS_DEFS.map(([name, level, stage, option], i) => ({
     id: `k${i + 1}`,
     name,
     level,
+    stage,
+    option,
+    annualTuition: annualFees[i],
     room: `Salle ${String.fromCharCode(65 + Math.floor(i / 4))}${(i % 4) + 1}0${int(1, 9)}`,
     capacity: 40,
     headTeacherId: teachers[i % teachers.length].id,
   }))
+
+  const teachingAssignments: TeachingAssignment[] = classes.flatMap((klass) =>
+    courses.map((course) => ({
+      id: `ta-${klass.id}-${course.id}`,
+      classId: klass.id,
+      courseId: course.id,
+      teacherId: course.teacherId,
+      room: klass.room,
+    })),
+  )
 
   const students: Student[] = []
   let mat = 1
@@ -162,15 +189,27 @@ export function createSeed(): Database {
     const ability = 8 + rand() * 9
     courses.forEach((c) => {
       const base = ability + (rand() - 0.5) * 4
-      const entries: Array<[Grade['term'], Grade['type'], number]> = [
-        ['T1', 'Interrogation', 70],
-        ['T1', 'Devoir', 50],
-        ['T1', 'Composition', 25],
-        ['T2', 'Devoir', 12],
+      const entries: Array<['S1' | 'S2', 'P1' | 'P2' | 'EXAMEN', number]> = [
+        ['S1', 'P1', 115],
+        ['S1', 'P2', 75],
+        ['S1', 'EXAMEN', 25],
+        ['S2', 'P1', 20],
+        ['S2', 'P2', 12],
+        ['S2', 'EXAMEN', 5],
       ]
-      entries.forEach(([term, type, ago]) => {
+      entries.forEach(([semester, period, ago]) => {
         const value = Math.max(2, Math.min(20, round(base + (rand() - 0.5) * 6)))
-        grades.push({ id: `g${g++}`, studentId: s.id, courseId: c.id, term, type, value, date: isoDate(daysAgo(ago + int(0, 4))) })
+        grades.push({
+          id: `g${g++}`,
+          studentId: s.id,
+          classId: s.classId,
+          courseId: c.id,
+          semester,
+          period,
+          maxValue: 20,
+          value,
+          date: isoDate(daysAgo(ago + int(0, 4))),
+        })
       })
     })
   })
@@ -190,9 +229,7 @@ export function createSeed(): Database {
     })
   })
 
-  const tuitionByLevel: Record<string, number> = {
-    '6ème': 350000, '5ème': 350000, '4ème': 380000, '3ème': 400000, '2nde': 450000, '1ère': 480000, Terminale: 520000,
-  }
+  const tuitionByLevel = Object.fromEntries(classes.map((klass) => [klass.level, klass.annualTuition ?? 0]))
 
   const enrollments: Enrollment[] = []
   const payments: Payment[] = []
@@ -209,29 +246,30 @@ export function createSeed(): Database {
       date: isoDate(daysAgo(enrolledAgo)),
       type: rand() > 0.3 ? 'Réinscription' : 'Nouvelle',
       status: pending ? 'en attente' : 'validée',
-      fee: 50000,
+      fee: 50,
     })
     if (!pending) {
-      payments.push({ id: `p${p}`, reference: `PAY-${String(p).padStart(5, '0')}`, studentId: s.id, category: 'Inscription', amount: 50000, method: pick(['Espèces', 'Mobile Money', 'Virement'] as const), date: isoDate(daysAgo(enrolledAgo)), status: 'payé' })
+      payments.push({ id: `p${p}`, reference: `PAY-${String(p).padStart(5, '0')}`, studentId: s.id, category: 'Inscription', amount: 50, method: pick(['Espèces', 'Mobile Money', 'Virement'] as const), date: isoDate(daysAgo(enrolledAgo)), status: 'payé' })
       p++
     }
-    const tuition = tuitionByLevel[k.level]
-    const installments = pending ? 0 : int(1, 3)
-    for (let n = 0; n < installments; n++) {
+    const semester = pick(['S1', 'S2'] as const)
+    const installmentCount = pending ? 0 : int(1, 2)
+    for (let n = 0; n < installmentCount; n++) {
       payments.push({
         id: `p${p}`,
         reference: `PAY-${String(p).padStart(5, '0')}`,
         studentId: s.id,
+        semester,
         category: 'Scolarité',
-        amount: Math.round(tuition / 3 / 1000) * 1000,
+        amount: Math.max(25, Math.round(((k.annualTuition ?? 0) / 2 / installmentCount) * 100) / 100),
         method: pick(['Espèces', 'Mobile Money', 'Virement', 'Chèque'] as const),
-        date: isoDate(daysAgo(int(1, 340))),
+        date: isoDate(daysAgo(int(1, 180))),
         status: rand() > 0.94 ? 'en attente' : 'payé',
       })
       p++
     }
     if (rand() > 0.55) {
-      payments.push({ id: `p${p}`, reference: `PAY-${String(p).padStart(5, '0')}`, studentId: s.id, category: pick(['Cantine', 'Transport', 'Tenue'] as const), amount: pick([15000, 25000, 30000, 45000]), method: pick(['Espèces', 'Mobile Money'] as const), date: isoDate(daysAgo(int(1, 300))), status: 'payé' })
+      payments.push({ id: `p${p}`, reference: `PAY-${String(p).padStart(5, '0')}`, studentId: s.id, category: pick(['Cantine', 'Transport', 'Tenue'] as const), amount: pick([15, 25, 30, 45]), method: pick(['Espèces', 'Mobile Money'] as const), date: isoDate(daysAgo(int(1, 300))), status: 'payé' })
       p++
     }
   })
@@ -240,8 +278,8 @@ export function createSeed(): Database {
   let x = 1
   for (let m = 0; m < 12; m++) {
     const ago = m * 30 + 3
-    expenses.push({ id: `x${x++}`, label: `Salaires du personnel — mois ${12 - m}`, category: 'Salaires', amount: int(380, 460) * 10000, date: isoDate(daysAgo(ago)), supplier: 'Personnel', method: 'Virement', status: m === 0 ? 'en attente' : 'payée' })
-    expenses.push({ id: `x${x++}`, label: 'Facture électricité & eau', category: 'Électricité & Eau', amount: int(18, 32) * 10000, date: isoDate(daysAgo(ago + 8)), supplier: 'Énergie Services', method: 'Virement', status: 'payée' })
+    expenses.push({ id: `x${x++}`, label: `Salaires du personnel — mois ${12 - m}`, category: 'Salaires', amount: teachers.reduce((sum, teacher) => sum + teacher.salary, 0), date: isoDate(daysAgo(ago)), supplier: 'Personnel', method: 'Virement', status: m === 0 ? 'en attente' : 'payée' })
+    expenses.push({ id: `x${x++}`, label: 'Facture électricité & eau', category: 'Électricité & Eau', amount: int(180, 320), date: isoDate(daysAgo(ago + 8)), supplier: 'Énergie Services', method: 'Virement', status: 'payée' })
     const extras = [
       ['Achat de fournitures scolaires', 'Fournitures', 'Librairie Centrale'],
       ['Réparation climatisation', 'Maintenance', 'FroidTech'],
@@ -253,7 +291,7 @@ export function createSeed(): Database {
     ] as const
     for (let e = 0; e < int(1, 3); e++) {
       const [label, category, supplier] = pick(extras)
-      expenses.push({ id: `x${x++}`, label, category, amount: int(5, 60) * 5000, date: isoDate(daysAgo(ago + int(1, 25))), supplier, method: pick(['Espèces', 'Virement', 'Chèque'] as const), status: 'payée' })
+      expenses.push({ id: `x${x++}`, label, category, amount: int(5, 60), date: isoDate(daysAgo(ago + int(1, 25))), supplier, method: pick(['Espèces', 'Virement', 'Chèque'] as const), status: 'payée' })
     }
   }
 
@@ -278,6 +316,7 @@ export function createSeed(): Database {
     teachers,
     classes,
     courses,
+    teachingAssignments,
     timetable,
     grades,
     attendance,
@@ -287,6 +326,6 @@ export function createSeed(): Database {
     users,
     notifications,
     session: null,
-    settings: { schoolName: 'Lycée International Scolaris', schoolYear, currency: 'FCFA', tuitionByLevel },
+    settings: { schoolName: 'Lycée Scolaris', schoolYear, currency: 'USD', tuitionByLevel },
   }
 }

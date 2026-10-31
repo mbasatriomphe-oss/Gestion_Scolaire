@@ -13,4 +13,8 @@ __v0_jsx-dev-runtime.ts
 # Common ignores
 node_modules
 .next/
+out/
+release/
+backend-runtime/*
+!backend-runtime/.gitkeep
 .DS_Store

@@ -4,10 +4,11 @@ import { Suspense, useEffect, useState, type ReactNode } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { Loader2, Lock } from 'lucide-react'
 import Link from 'next/link'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { useRealtimeSimulation } from '@/hooks/use-realtime-simulation'
+import { ApiError, clearAuthToken, getApiErrorMessage, getCurrentUser, hasAuthToken } from '@/lib/api'
 import { canAccess, moduleFromPath } from '@/lib/permissions'
-import { useCurrentUser, useDB } from '@/lib/store'
+import { db, useCurrentUser, useDB } from '@/lib/store'
 import { AppSidebar } from './app-sidebar'
 import { Topbar } from './topbar'
 
@@ -17,21 +18,80 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const [hydrated, setHydrated] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
+  const [authError, setAuthError] = useState('')
+  const [retry, setRetry] = useState(0)
 
   useEffect(() => setHydrated(true), [])
+
   useEffect(() => {
-    if (hydrated && data && !user) router.replace('/')
-  }, [hydrated, data, user, router])
+    if (!hydrated) return
 
-  useRealtimeSimulation(Boolean(user))
+    let active = true
+    setAuthChecked(false)
+    setAuthError('')
 
-  if (!hydrated || !data || !user) {
+    if (!hasAuthToken()) {
+      db.logout()
+      router.replace('/')
+      setAuthChecked(true)
+      return
+    }
+
+    getCurrentUser()
+      .then((authenticatedUser) => {
+        if (active) db.loginWithUser(authenticatedUser)
+      })
+      .catch((error: unknown) => {
+        if (!active) return
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          clearAuthToken()
+          db.logout()
+          router.replace('/')
+          toast.error(getApiErrorMessage(error))
+          return
+        }
+        setAuthError(getApiErrorMessage(error))
+      })
+      .finally(() => {
+        if (active) setAuthChecked(true)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [hydrated, retry, router])
+
+  if (!hydrated || !authChecked || !data || (!user && !authError)) {
     return (
       <div className="flex min-h-svh items-center justify-center bg-background">
         <Loader2 className="size-6 animate-spin text-gold" aria-label="Chargement" />
       </div>
     )
   }
+
+  if (authError) {
+    return (
+      <div className="flex min-h-svh flex-col items-center justify-center gap-4 bg-background p-6 text-center">
+        <p role="alert" className="max-w-md text-sm text-destructive">{authError}</p>
+        <div className="flex gap-2">
+          <Button onClick={() => setRetry((value) => value + 1)}>Réessayer</Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              clearAuthToken()
+              db.logout()
+              router.replace('/')
+            }}
+          >
+            Retour à la connexion
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) return null
 
   const moduleKey = moduleFromPath(pathname)
   const allowed = !moduleKey || canAccess(user.role, moduleKey)

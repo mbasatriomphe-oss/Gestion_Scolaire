@@ -146,4 +146,54 @@
   body {
     background: white !important;
   }
+
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  body:has(.report-card) {
+    color: #000 !important;
+    background: #fff !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  body:has(.report-card) aside,
+  body:has(.report-card) header.no-print,
+  body:has(.report-card) [data-sonner-toaster] {
+    display: none !important;
+  }
+
+  body:has(.report-card) main {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    animation: none !important;
+  }
+
+  .report-card {
+    width: 100% !important;
+    margin: 0 !important;
+    color: #000 !important;
+    background: #fff !important;
+    break-inside: avoid;
+    box-shadow: none !important;
+  }
+
+  .report-table th,
+  .report-table td {
+    border: 1px solid #334155;
+    padding: 3px 4px;
+    text-align: center;
+    vertical-align: middle;
+    overflow-wrap: anywhere;
+  }
+
+  .report-table th:first-child,
+  .report-table td:first-child {
+    text-align: left;
+  }
 }

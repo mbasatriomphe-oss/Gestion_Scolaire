@@ -2,14 +2,14 @@
 
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, XAxis, YAxis } from 'recharts'
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
-import { formatCompactMoney } from '@/lib/format'
+import { formatCompactMoney, formatMoney } from '@/lib/format'
 
 const financeConfig = {
   recettes: { label: 'Recettes', color: 'var(--chart-2)' },
   depenses: { label: 'Dépenses', color: 'var(--chart-1)' },
 } satisfies ChartConfig
 
-export function FinanceChart({ data }: { data: Array<{ month: string; recettes: number; depenses: number }> }) {
+export function FinanceChart({ data, currency }: { data: Array<{ month: string; recettes: number; depenses: number }>; currency: string }) {
   return (
     <ChartContainer config={financeConfig} className="aspect-auto h-72 w-full">
       <AreaChart data={data} margin={{ left: 4, right: 8, top: 8 }}>
@@ -25,11 +25,11 @@ export function FinanceChart({ data }: { data: Array<{ month: string; recettes: 
         </defs>
         <CartesianGrid vertical={false} strokeDasharray="3 3" />
         <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
-        <YAxis tickLine={false} axisLine={false} width={56} tickFormatter={(v) => formatCompactMoney(Number(v))} />
+        <YAxis tickLine={false} axisLine={false} width={72} tickFormatter={(v) => formatCompactMoney(Number(v), currency)} />
         <ChartTooltip content={<ChartTooltipContent formatter={(v, name) => (
           <div className="flex w-full items-center justify-between gap-4">
             <span className="text-muted-foreground">{financeConfig[name as keyof typeof financeConfig]?.label}</span>
-            <span className="font-mono font-medium tabular-nums">{Number(v).toLocaleString('fr-FR')} FCFA</span>
+            <span className="font-mono font-medium tabular-nums">{formatMoney(Number(v), currency)}</span>
           </div>
         )} />} />
         <Area dataKey="depenses" type="monotone" stroke="var(--color-depenses)" fill="url(#fillDepenses)" strokeWidth={2} />

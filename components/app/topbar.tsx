@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { clearAuthToken, getApiErrorMessage, logout as apiLogout } from '@/lib/api'
 import { ALL_NAV, ROLE_LABELS } from '@/lib/permissions'
 import { db } from '@/lib/store'
 import type { AppUser } from '@/lib/types'
@@ -78,10 +79,17 @@ export function Topbar({ user }: { user: AppUser }) {
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
-              onClick={() => {
-                db.logout()
-                router.replace('/')
-                toast.success('Vous êtes déconnecté.')
+              onClick={async () => {
+                try {
+                  await apiLogout()
+                  toast.success('Vous êtes déconnecté.')
+                } catch (error) {
+                  toast.error(`La session locale est fermée, mais la déconnexion serveur a échoué : ${getApiErrorMessage(error)}`)
+                } finally {
+                  clearAuthToken()
+                  db.logout()
+                  router.replace('/')
+                }
               }}
             >
               <LogOut />

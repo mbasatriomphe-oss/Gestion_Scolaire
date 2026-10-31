@@ -9,6 +9,56 @@ const STORAGE_KEY = 'scolaris-db'
 let state: Database | null = null
 const listeners = new Set<() => void>()
 
+function migrate(data: Database): Database {
+  const studentById = new Map(data.students.map((student) => [student.id, student]))
+  const courseById = new Map(data.courses.map((course) => [course.id, course]))
+  const assignments = new Map(
+    (data.teachingAssignments ?? []).map((assignment) => [`${assignment.classId}|${assignment.courseId}`, assignment]),
+  )
+
+  if (!data.teachingAssignments) {
+    for (const slot of data.timetable) {
+      const key = `${slot.classId}|${slot.courseId}`
+      if (assignments.has(key)) continue
+      const course = courseById.get(slot.courseId)
+      if (course) {
+        assignments.set(key, {
+          id: `ta-${slot.classId}-${slot.courseId}`,
+          classId: slot.classId,
+          courseId: slot.courseId,
+          teacherId: course.teacherId,
+          room: slot.room,
+        })
+      }
+    }
+  }
+
+  return {
+    ...data,
+    version: DB_VERSION,
+    classes: data.classes.map((klass) => ({
+      ...klass,
+      annualTuition: klass.annualTuition ?? data.settings.tuitionByLevel[klass.level] ?? 0,
+      stage: klass.stage ?? 'orientation',
+      option: klass.option ?? '',
+    })),
+    teachingAssignments: [...assignments.values()],
+    grades: data.grades.map((grade) => ({
+      ...grade,
+      classId: grade.classId ?? studentById.get(grade.studentId)?.classId,
+      semester: grade.semester ?? (grade.term === 'T3' ? 'S2' : 'S1'),
+      period:
+        grade.period ??
+        (grade.type === 'Composition' ? 'EXAMEN' : grade.type === 'Interrogation' ? 'P1' : grade.term === 'T3' ? 'P2' : 'P1'),
+      maxValue: grade.maxValue ?? 20,
+    })),
+    payments: data.payments.map((payment) => ({
+      ...payment,
+      semester: payment.semester ?? (payment.category === 'Scolarité' ? 'S1' : undefined),
+    })),
+  }
+}
+
 function load(): Database {
   if (state) return state
   try {
@@ -17,6 +67,11 @@ function load(): Database {
       const parsed = JSON.parse(raw) as Database
       if (parsed.version === DB_VERSION) {
         state = parsed
+        return state
+      }
+      if (parsed.version === 1) {
+        state = migrate(parsed)
+        persist()
         return state
       }
     }
@@ -104,6 +159,13 @@ export const db = {
       users: d.users.map((u) => (u.id === user.id ? { ...u, lastLogin: new Date().toISOString() } : u)),
     }))
     return { ok: true as const, user }
+  },
+  loginWithUser(user: Database['users'][number]) {
+    setState((d) => ({
+      ...d,
+      users: [user, ...d.users.filter((existing) => existing.id !== user.id)],
+      session: { userId: user.id },
+    }))
   },
   logout() {
     setState((d) => ({ ...d, session: null }))

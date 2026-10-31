@@ -10,7 +10,7 @@ import { PersonCell } from '@/components/app/person-cell'
 import { StatCard } from '@/components/app/stat-card'
 import { StatusBadge } from '@/components/app/status-badge'
 import { AttendanceChart, DonutChart, FinanceChart, LevelChart } from '@/components/dashboard/charts'
-import { fmtGrade, studentTermAverages } from '@/lib/academics'
+import { fmtGrade, studentSemesterAverages } from '@/lib/academics'
 import { formatCompactMoney, formatDate, formatMoney, timeAgo } from '@/lib/format'
 import { ROLE_LABELS } from '@/lib/permissions'
 import { LEVELS } from '@/lib/seed'
@@ -28,7 +28,7 @@ export default function DashboardPage() {
     const paid = data.payments.filter((p) => p.status === 'payé')
     const revenue = paid.reduce((a, p) => a + p.amount, 0)
     const expenses = data.expenses.reduce((a, e) => a + e.amount, 0)
-    const expectedTuition = activeStudents.reduce((a, s) => a + (data.settings.tuitionByLevel[classById.get(s.classId)?.level ?? ''] ?? 0), 0)
+    const expectedTuition = activeStudents.reduce((a, s) => a + ((classById.get(s.classId)?.annualTuition ?? data.settings.tuitionByLevel[classById.get(s.classId)?.level ?? ''] ?? 0)), 0)
     const tuitionPaid = paid.filter((p) => p.category === 'Scolarité').reduce((a, p) => a + p.amount, 0)
     const recoveryRate = expectedTuition ? Math.min(100, (tuitionPaid / expectedTuition) * 100) : 0
 
@@ -69,7 +69,7 @@ export default function DashboardPage() {
 
     const classAverages = data.classes
       .map((c) => {
-        const rows = studentTermAverages(data, c.id, 'T1').map((r) => r.general).filter((v): v is number => v !== null)
+        const rows = studentSemesterAverages(data, c.id, 'S1').map((r) => r.general).filter((v): v is number => v !== null)
         return { klass: c, avg: rows.length ? rows.reduce((a, b) => a + b, 0) / rows.length : null, size: data.students.filter((s) => s.classId === c.id).length }
       })
       .filter((c) => c.avg !== null)
@@ -128,13 +128,13 @@ export default function DashboardPage() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Élèves actifs" value={stats.activeStudents.toLocaleString('fr-FR')} icon={GraduationCap} hint={`${stats.girls} filles · ${stats.activeStudents - stats.girls} garçons`} tone="navy" />
         <StatCard label="Enseignants" value={String(stats.teachers)} icon={Users} hint={`${data.classes.length} classes · ${data.courses.length} matières`} tone="gold" delay={80} />
-        <StatCard label="Recettes encaissées" value={formatCompactMoney(stats.revenue)} icon={Wallet} trend={stats.revenueTrend} hint="vs mois précédent" tone="success" delay={160} />
+        <StatCard label="Recettes encaissées" value={formatCompactMoney(stats.revenue, data.settings.currency)} icon={Wallet} trend={stats.revenueTrend} hint="vs mois précédent" tone="success" delay={160} />
         <StatCard label="Taux de présence" value={`${stats.lastRate.toFixed(1)} %`} icon={CalendarCheck} trend={stats.rateTrend} hint="dernier jour pointé" tone="danger" delay={240} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <Panel title="Recettes & dépenses" description="Six derniers mois, en FCFA" className="xl:col-span-2" delay={100}>
-          <FinanceChart data={stats.finance} />
+        <Panel title="Recettes & dépenses" description={`Six derniers mois · ${data.settings.currency}`} className="xl:col-span-2" delay={100}>
+          <FinanceChart data={stats.finance} currency={data.settings.currency} />
         </Panel>
         <Panel title="Recouvrement scolarité" description="Montant perçu sur le total attendu" delay={150}>
           <DonutChart
@@ -149,11 +149,11 @@ export default function DashboardPage() {
           <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-xl bg-muted/60 p-3">
               <dt className="text-xs text-muted-foreground">Perçu</dt>
-              <dd className="mt-0.5 font-semibold tabular-nums">{formatCompactMoney(stats.tuitionPaid)}</dd>
+              <dd className="mt-0.5 font-semibold tabular-nums">{formatCompactMoney(stats.tuitionPaid, data.settings.currency)}</dd>
             </div>
             <div className="rounded-xl bg-muted/60 p-3">
               <dt className="text-xs text-muted-foreground">Attendu</dt>
-              <dd className="mt-0.5 font-semibold tabular-nums">{formatCompactMoney(stats.expectedTuition)}</dd>
+              <dd className="mt-0.5 font-semibold tabular-nums">{formatCompactMoney(stats.expectedTuition, data.settings.currency)}</dd>
             </div>
           </dl>
         </Panel>
@@ -166,7 +166,7 @@ export default function DashboardPage() {
         <Panel title="Assiduité" description="Taux de présence des 10 derniers jours" delay={150}>
           <AttendanceChart data={stats.attendanceSeries} />
         </Panel>
-        <Panel title="Résultats par classe" description="Moyenne générale · 1er trimestre" className="lg:col-span-2 xl:col-span-1" delay={200} action={<TrendingUp className="size-4 text-gold" />}>
+        <Panel title="Résultats par classe" description="Moyenne générale · 1er semestre" className="lg:col-span-2 xl:col-span-1" delay={200} action={<TrendingUp className="size-4 text-gold" />}>
           <ul className="flex flex-col gap-3">
             {stats.classAverages.slice(0, 6).map((c, i) => (
               <li key={c.klass.id} className="flex items-center gap-3">
@@ -205,7 +205,7 @@ export default function DashboardPage() {
                     <PersonCell name={s ? `${s.firstName} ${s.lastName}` : 'Élève supprimé'} sub={`${p.category} · ${p.method} · ${formatDate(p.date)}`} />
                   </div>
                   <StatusBadge status={p.status} className="hidden sm:inline-flex" />
-                  <span className="w-28 text-right text-sm font-semibold tabular-nums">{formatMoney(p.amount)}</span>
+                  <span className="w-28 text-right text-sm font-semibold tabular-nums">{formatMoney(p.amount, data.settings.currency)}</span>
                 </li>
               )
             })}
@@ -221,7 +221,7 @@ export default function DashboardPage() {
                       <span className="size-2.5 rounded-full" style={{ background: m.fill }} />
                       {m.name}
                     </span>
-                    <span className="font-medium tabular-nums">{formatCompactMoney(m.value)}</span>
+                    <span className="font-medium tabular-nums">{formatCompactMoney(m.value, data.settings.currency)}</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                     <div className="h-full rounded-full transition-all duration-700" style={{ width: `${stats.revenue ? (m.value / stats.revenue) * 100 : 0}%`, background: m.fill }} />
@@ -230,12 +230,11 @@ export default function DashboardPage() {
               ))}
             </ul>
           </Panel>
-          <Panel title="Activité en direct" description="Notifications simulées en temps réel" delay={200}>
+          <Panel title="Activité récente" description="Dernières notifications enregistrées" delay={200}>
             <ul className="flex flex-col gap-3">
               {data.notifications.slice(0, 4).map((n) => (
                 <li key={n.id} className="flex gap-3 animate-in fade-in slide-in-from-right-2">
                   <span className="relative mt-1.5 flex size-2 shrink-0">
-                    {!n.read && <span className="absolute inset-0 animate-ping rounded-full bg-gold/70" />}
                     <span className={`relative size-2 rounded-full ${n.read ? 'bg-muted-foreground/40' : 'bg-gold'}`} />
                   </span>
                   <div className="min-w-0">

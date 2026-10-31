@@ -1,14 +1,18 @@
 export type Role = 'admin' | 'directeur' | 'enseignant' | 'comptable' | 'secretaire'
 export type Gender = 'M' | 'F'
-export type Term = 'T1' | 'T2' | 'T3'
+export type Semester = 'S1' | 'S2'
+export type AssessmentPeriod = 'P1' | 'P2' | 'EXAMEN'
+export type LegacyTerm = 'T1' | 'T2' | 'T3'
 
 export interface Student {
   id: string
   matricule: string
   firstName: string
   lastName: string
+  middleName?: string
   gender: Gender
   birthDate: string
+  birthPlace?: string
   classId: string
   parentName: string
   parentPhone: string
@@ -20,9 +24,11 @@ export interface Student {
 
 export interface Teacher {
   id: string
+  matricule?: string
   firstName: string
   lastName: string
-  gender: Gender
+  postName?: string
+  gender: Gender | ''
   email: string
   phone: string
   specialty: string
@@ -38,6 +44,9 @@ export interface SchoolClass {
   room: string
   capacity: number
   headTeacherId: string
+  annualTuition?: number
+  stage?: 'orientation' | 'option'
+  option?: string
 }
 
 export interface Course {
@@ -60,12 +69,25 @@ export interface TimetableEntry {
   room: string
 }
 
+export interface TeachingAssignment {
+  id: string
+  classId: string
+  courseId: string
+  teacherId: string
+  room: string
+}
+
 export interface Grade {
   id: string
   studentId: string
+  classId?: string
+  assignmentId?: string
   courseId: string
-  term: Term
-  type: 'Devoir' | 'Interrogation' | 'Composition'
+  semester?: Semester
+  period?: AssessmentPeriod
+  maxValue?: number
+  term?: LegacyTerm
+  type?: 'Devoir' | 'Interrogation' | 'Composition'
   value: number
   date: string
 }
@@ -93,6 +115,7 @@ export interface Payment {
   id: string
   reference: string
   studentId: string
+  semester?: Semester
   category: 'Scolarité' | 'Inscription' | 'Cantine' | 'Transport' | 'Tenue'
   amount: number
   method: 'Espèces' | 'Mobile Money' | 'Virement' | 'Chèque'
@@ -137,6 +160,7 @@ export interface Database {
   teachers: Teacher[]
   classes: SchoolClass[]
   courses: Course[]
+  teachingAssignments: TeachingAssignment[]
   timetable: TimetableEntry[]
   grades: Grade[]
   attendance: Attendance[]

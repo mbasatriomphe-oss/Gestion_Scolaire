@@ -1,106 +1,167 @@
-import type { Course, Database, Grade, Student, Term } from './types'
+import type { AssessmentPeriod, Course, Database, Grade, Semester, Student } from './types'
 
-export const TERMS: Term[] = ['T1', 'T2', 'T3']
-export const TERM_LABELS: Record<Term, string> = { T1: '1er trimestre', T2: '2e trimestre', T3: '3e trimestre' }
-export const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi']
-
-const avg = (values: number[]) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null)
-
-export function courseAverage(grades: Grade[]) {
-  const comps = grades.filter((g) => g.type === 'Composition').map((g) => g.value)
-  const others = grades.filter((g) => g.type !== 'Composition').map((g) => g.value)
-  const cc = avg(others)
-  const comp = avg(comps)
-  if (cc === null && comp === null) return null
-  if (cc === null) return comp
-  if (comp === null) return cc
-  return (cc + comp * 2) / 3
+export const SEMESTERS: Semester[] = ['S1', 'S2']
+export const SEMESTER_LABELS: Record<Semester, string> = { S1: '1er semestre', S2: '2e semestre' }
+export const PERIODS: AssessmentPeriod[] = ['P1', 'P2', 'EXAMEN']
+export const PERIOD_LABELS: Record<AssessmentPeriod, string> = {
+  P1: 'Première période',
+  P2: 'Deuxième période',
+  EXAMEN: 'Examen de fin de semestre',
 }
 
-export interface ReportLine {
-  course: Course
-  average: number | null
-  weighted: number | null
-  classAverage: number | null
-  min: number | null
-  max: number | null
-  appreciation: string
+const average = (values: number[]) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null)
+const scoreOnTwenty = (grade: Grade) => (grade.value / (grade.maxValue || 20)) * 20
+
+function gradeSemester(grade: Grade): Semester | null {
+  if (grade.semester) return grade.semester
+  if (grade.term === 'T1' || grade.term === 'T2') return 'S1'
+  if (grade.term === 'T3') return 'S2'
+  return null
 }
 
-export function appreciation(n: number | null) {
-  if (n === null) return '—'
-  if (n >= 16) return 'Excellent'
-  if (n >= 14) return 'Très bien'
-  if (n >= 12) return 'Bien'
-  if (n >= 10) return 'Assez bien'
-  if (n >= 8) return 'Insuffisant'
-  return 'Très insuffisant'
+function gradePeriod(grade: Grade): AssessmentPeriod | null {
+  if (grade.period) return grade.period
+  if (grade.type === 'Composition') return 'EXAMEN'
+  if (grade.type === 'Interrogation') return 'P1'
+  if (grade.type === 'Devoir') return grade.term === 'T2' || grade.term === 'T3' ? 'P2' : 'P1'
+  return null
 }
 
-export function mention(n: number | null) {
-  if (n === null) return '—'
-  if (n >= 16) return 'Félicitations'
-  if (n >= 14) return "Tableau d'honneur + Encouragements"
-  if (n >= 12) return "Tableau d'honneur"
-  if (n >= 10) return 'Passable'
-  return 'Avertissement travail'
+export interface StudentSemesterAverage {
+  student: Student
+  general: number | null
+  complete: boolean
+  rank: number | null
+  classSize: number
 }
 
-export function studentTermAverages(data: Database, classId: string, term: Term) {
-  const students = data.students.filter((s) => s.classId === classId)
-  const ids = new Set(students.map((s) => s.id))
-  const byStudentCourse = new Map<string, Grade[]>()
-  for (const g of data.grades) {
-    if (g.term !== term || !ids.has(g.studentId)) continue
-    const key = `${g.studentId}|${g.courseId}`
-    const list = byStudentCourse.get(key)
-    if (list) list.push(g)
-    else byStudentCourse.set(key, [g])
+export function studentSemesterAverages(data: Database, classId: string, semester: Semester) {
+  const students = data.students.filter((student) => student.classId === classId)
+  const studentIds = new Set(students.map((student) => student.id))
+  const assignments = data.teachingAssignments?.filter((assignment) => assignment.classId === classId) ?? []
+  const courseIds = [...new Set(assignments.map((assignment) => assignment.courseId))]
+  const courses = (courseIds.length ? data.courses.filter((course) => courseIds.includes(course.id)) : data.courses)
+  const gradesByKey = new Map<string, number[]>()
+
+  for (const grade of data.grades) {
+    if (!studentIds.has(grade.studentId) || gradeSemester(grade) !== semester) continue
+    if (grade.classId && grade.classId !== classId) continue
+    const period = gradePeriod(grade)
+    if (!period) continue
+    const key = `${grade.studentId}|${grade.courseId}|${period}`
+    const grades = gradesByKey.get(key)
+    if (grades) grades.push(scoreOnTwenty(grade))
+    else gradesByKey.set(key, [scoreOnTwenty(grade)])
   }
-  const result = students.map((s) => {
-    let total = 0
-    let coefs = 0
-    const perCourse: Record<string, number | null> = {}
-    for (const c of data.courses) {
-      const a = courseAverage(byStudentCourse.get(`${s.id}|${c.id}`) ?? [])
-      perCourse[c.id] = a
-      if (a !== null) {
-        total += a * c.coefficient
-        coefs += c.coefficient
-      }
-    }
-    return { student: s, perCourse, general: coefs ? total / coefs : null }
-  })
-  const ranked = [...result].filter((r) => r.general !== null).sort((a, b) => b.general! - a.general!)
-  return result.map((r) => ({ ...r, rank: r.general === null ? null : ranked.indexOf(r) + 1, classSize: ranked.length }))
-}
 
-export function buildReportCard(data: Database, student: Student, term: Term) {
-  const rows = studentTermAverages(data, student.classId, term)
-  const me = rows.find((r) => r.student.id === student.id)!
-  const lines: ReportLine[] = data.courses.map((course) => {
-    const values = rows.map((r) => r.perCourse[course.id]).filter((v): v is number => v !== null)
-    const average = me.perCourse[course.id]
+  const result: StudentSemesterAverage[] = students.map((student) => {
+    let weightedTotal = 0
+    let totalCoefficients = 0
+    let complete = courses.length > 0
+
+    for (const course of courses) {
+      const componentAverages = PERIODS.map((period) =>
+        average(gradesByKey.get(`${student.id}|${course.id}|${period}`) ?? []),
+      )
+      const available = componentAverages.filter((value): value is number => value !== null)
+      if (available.length < PERIODS.length) complete = false
+      if (available.length === 0) continue
+      weightedTotal += (average(available) ?? 0) * course.coefficient
+      totalCoefficients += course.coefficient
+    }
+
     return {
-      course,
-      average,
-      weighted: average === null ? null : average * course.coefficient,
-      classAverage: avg(values),
-      min: values.length ? Math.min(...values) : null,
-      max: values.length ? Math.max(...values) : null,
-      appreciation: appreciation(average),
+      student,
+      general: totalCoefficients ? weightedTotal / totalCoefficients : null,
+      complete,
+      rank: null,
+      classSize: 0,
     }
   })
-  const generals = rows.map((r) => r.general).filter((v): v is number => v !== null)
+
+  const ranked = [...result]
+    .filter((item) => item.general !== null)
+    .sort((a, b) => b.general! - a.general!)
+  return result.map((item) => ({
+    ...item,
+    rank: item.general === null ? null : ranked.findIndex((entry) => entry.student.id === item.student.id) + 1,
+    classSize: ranked.length,
+  }))
+}
+
+export interface AnnualStudentResult {
+  student: Student
+  semester1: StudentSemesterAverage
+  semester2: StudentSemesterAverage
+  annual: number | null
+  passed: boolean | null
+}
+
+export function annualClassResults(data: Database, classId: string): AnnualStudentResult[] {
+  const first = new Map(studentSemesterAverages(data, classId, 'S1').map((item) => [item.student.id, item]))
+  const second = new Map(studentSemesterAverages(data, classId, 'S2').map((item) => [item.student.id, item]))
+
+  return data.students
+    .filter((student) => student.classId === classId)
+    .map((student) => {
+      const semester1 = first.get(student.id)!
+      const semester2 = second.get(student.id)!
+      const annual =
+        semester1.complete && semester2.complete && semester1.general !== null && semester2.general !== null
+          ? (semester1.general + semester2.general) / 2
+          : null
+      return {
+        student,
+        semester1,
+        semester2,
+        annual,
+        passed: annual === null ? null : annual > 10,
+      }
+    })
+}
+
+export interface CourseSemesterDetails {
+  P1: number | null
+  P2: number | null
+  EXAMEN: number | null
+  average: number | null
+}
+
+export function studentCourseYearDetails(data: Database, studentId: string, classId: string, courseId: string) {
+  const semesterDetails = (semester: Semester): CourseSemesterDetails => {
+    const grades = data.grades.filter((grade) =>
+      grade.studentId === studentId &&
+      grade.courseId === courseId &&
+      (!grade.classId || grade.classId === classId) &&
+      gradeSemester(grade) === semester,
+    )
+    const values = Object.fromEntries(
+      PERIODS.map((period) => [
+        period,
+        average(grades.filter((grade) => gradePeriod(grade) === period).map(scoreOnTwenty)),
+      ]),
+    ) as Record<AssessmentPeriod, number | null>
+    const components = PERIODS.map((period) => values[period])
+    return {
+      ...values,
+      average: components.every((value): value is number => value !== null) ? average(components as number[]) : null,
+    }
+  }
+
+  const semester1 = semesterDetails('S1')
+  const semester2 = semesterDetails('S2')
   return {
-    lines,
-    general: me.general,
-    rank: me.rank,
-    classSize: me.classSize,
-    classAverage: avg(generals),
-    best: generals.length ? Math.max(...generals) : null,
-    mention: mention(me.general),
+    semester1,
+    semester2,
+    annual: semester1.average !== null && semester2.average !== null
+      ? (semester1.average + semester2.average) / 2
+      : null,
   }
 }
 
-export const fmtGrade = (n: number | null | undefined) => (n === null || n === undefined ? '—' : n.toFixed(2).replace('.', ','))
+export const fmtGrade = (value: number | null | undefined) =>
+  value === null || value === undefined ? '—' : value.toFixed(2).replace('.', ',')
+
+export function studentTermAverages(data: Database, classId: string, _legacyTerm: 'T1' | 'T2' | 'T3') {
+  return studentSemesterAverages(data, classId, 'S1')
+}
