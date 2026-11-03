@@ -12,6 +12,11 @@ export const PERIOD_LABELS: Record<AssessmentPeriod, string> = {
 const average = (values: number[]) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null)
 const scoreOnTwenty = (grade: Grade) => (grade.value / (grade.maxValue || 20)) * 20
 
+function semesterAverage(values: Record<AssessmentPeriod, number | null>) {
+  if (values.P1 === null || values.P2 === null || values.EXAMEN === null) return null
+  return (values.P1 + values.P2 + 2 * values.EXAMEN) / 4
+}
+
 function gradeSemester(grade: Grade): Semester | null {
   if (grade.semester) return grade.semester
   if (grade.term === 'T1' || grade.term === 'T2') return 'S1'
@@ -40,7 +45,7 @@ export function studentSemesterAverages(data: Database, classId: string, semeste
   const studentIds = new Set(students.map((student) => student.id))
   const assignments = data.teachingAssignments?.filter((assignment) => assignment.classId === classId) ?? []
   const courseIds = [...new Set(assignments.map((assignment) => assignment.courseId))]
-  const courses = (courseIds.length ? data.courses.filter((course) => courseIds.includes(course.id)) : data.courses)
+  const courses = data.courses.filter((course) => courseIds.includes(course.id))
   const gradesByKey = new Map<string, number[]>()
 
   for (const grade of data.grades) {
@@ -60,19 +65,22 @@ export function studentSemesterAverages(data: Database, classId: string, semeste
     let complete = courses.length > 0
 
     for (const course of courses) {
-      const componentAverages = PERIODS.map((period) =>
+      const values = Object.fromEntries(PERIODS.map((period) => [
+        period,
         average(gradesByKey.get(`${student.id}|${course.id}|${period}`) ?? []),
-      )
-      const available = componentAverages.filter((value): value is number => value !== null)
-      if (available.length < PERIODS.length) complete = false
-      if (available.length === 0) continue
-      weightedTotal += (average(available) ?? 0) * course.coefficient
+      ])) as Record<AssessmentPeriod, number | null>
+      const courseAverage = semesterAverage(values)
+      if (courseAverage === null) {
+        complete = false
+        continue
+      }
+      weightedTotal += courseAverage * course.coefficient
       totalCoefficients += course.coefficient
     }
 
     return {
       student,
-      general: totalCoefficients ? weightedTotal / totalCoefficients : null,
+      general: complete && totalCoefficients ? weightedTotal / totalCoefficients : null,
       complete,
       rank: null,
       classSize: 0,
@@ -141,10 +149,9 @@ export function studentCourseYearDetails(data: Database, studentId: string, clas
         average(grades.filter((grade) => gradePeriod(grade) === period).map(scoreOnTwenty)),
       ]),
     ) as Record<AssessmentPeriod, number | null>
-    const components = PERIODS.map((period) => values[period])
     return {
       ...values,
-      average: components.every((value): value is number => value !== null) ? average(components as number[]) : null,
+      average: semesterAverage(values),
     }
   }
 

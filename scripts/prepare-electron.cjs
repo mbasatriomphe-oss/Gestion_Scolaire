@@ -12,6 +12,8 @@ const phpExtensionFiles = [
   'php_mbstring.dll',
   'php_openssl.dll',
   'php_pdo_mysql.dll',
+  'php_pdo_sqlite.dll',
+  'php_sqlite3.dll',
 ]
 const phpExtensionDependencies = {
   php_curl: ['libssh2.dll', 'nghttp2.dll', 'libssl-3-x64.dll', 'libcrypto-3-x64.dll'],
@@ -28,7 +30,7 @@ const phpRuntimeFiles = [
   'libsqlite3.dll',
   'license.txt',
 ]
-const phpIniExtensions = ['curl', 'fileinfo', 'mbstring', 'openssl', 'pdo_mysql']
+const phpIniExtensions = ['curl', 'fileinfo', 'mbstring', 'openssl', 'pdo_mysql', 'pdo_sqlite', 'sqlite3']
 const phpRuntimeDllFiles = [
   'icudt71.dll',
   'icuin71.dll',
@@ -175,9 +177,12 @@ fs.writeFileSync(
         ],
         npmRebuild: false,
         win: {
+          icon: path.join(projectDirectory, 'public', 'icon.ico'),
           target: ['nsis'],
         },
         nsis: {
+          installerIcon: path.join(projectDirectory, 'public', 'icon.ico'),
+          uninstallerIcon: path.join(projectDirectory, 'public', 'icon.ico'),
           include: path.join(projectDirectory, 'scripts', 'installer.nsh'),
           oneClick: false,
           runAfterFinish: true,

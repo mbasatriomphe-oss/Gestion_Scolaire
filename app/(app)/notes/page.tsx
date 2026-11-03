@@ -1,6 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { StudentGrades } from '@/components/students/student-grades'
+
+import { useEffect, useMemo, useState } from 'react'
 import { ClipboardList, Save } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -9,159 +11,172 @@ import { PageHeader } from '@/components/app/page-header'
 import { SimpleSelect } from '@/components/app/simple-select'
 import { StatCard } from '@/components/app/stat-card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { PERIOD_LABELS, PERIODS, SEMESTER_LABELS, SEMESTERS, fmtGrade } from '@/lib/academics'
-import { todayISO } from '@/lib/format'
-import { useCanEdit } from '@/hooks/use-permission'
-import { db, useCurrentUser, useDB } from '@/lib/store'
-import type { AssessmentPeriod, Grade, Semester } from '@/lib/types'
+import { getApiErrorMessage } from '@/lib/api'
+import { createGrade, listGradeAssignments, loadGradeSheet, updateGrade, type GradeAssignment, type GradeSheet } from '@/lib/grading-api'
+import { useCurrentUser } from '@/lib/store'
 
 export default function GradesPage() {
-  const data = useDB()!
   const user = useCurrentUser()
-  const editable = useCanEdit('notes')
-  const assignments = useMemo(
-    () =>
-      (data.teachingAssignments ?? []).filter(
-        (assignment) => user?.role !== 'enseignant' || assignment.teacherId === user.teacherId,
-      ),
-    [data.teachingAssignments, user],
-  )
+  const editable = user?.role === 'enseignant'
+  const [assignments, setAssignments] = useState<GradeAssignment[]>([])
   const [assignmentId, setAssignmentId] = useState('')
-  const [semester, setSemester] = useState<Semester>('S1')
-  const [period, setPeriod] = useState<AssessmentPeriod>('P1')
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
-  const [saving, setSaving] = useState<string | null>(null)
-  const assignment = assignments.find((item) => item.id === assignmentId) ?? assignments[0]
-  const klass = data.classes.find((item) => item.id === assignment?.classId)
-  const course = data.courses.find((item) => item.id === assignment?.courseId)
-  const students = useMemo(
-    () => data.students.filter((student) => student.classId === assignment?.classId).sort((a, b) => a.lastName.localeCompare(b.lastName, 'fr')),
-    [data.students, assignment?.classId],
-  )
-  const gradeByStudent = useMemo(() => {
-    const grades = data.grades.filter(
-      (grade) =>
-        grade.classId === assignment?.classId &&
-        grade.courseId === assignment?.courseId &&
-        grade.semester === semester &&
-        grade.period === period,
-    )
-    return new Map(grades.map((grade) => [grade.studentId, grade]))
-  }, [data.grades, assignment?.classId, assignment?.courseId, semester, period])
-  const savedCount = students.filter((student) => gradeByStudent.has(student.id)).length
+  const [sheet, setSheet] = useState<GradeSheet | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [sheetLoading, setSheetLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [sheetError, setSheetError] = useState('')
+  const [retry, setRetry] = useState(0)
+  const [semesterId, setSemesterId] = useState('')
+  const [periodId, setPeriodId] = useState('')
+  const [drafts, setDrafts] = useState<Record<number, string>>({})
+  const [saving, setSaving] = useState<number | null>(null)
 
-  const saveGrade = (studentId: string) => {
-    if (!assignment) return
-    const rawValue = drafts[studentId] ?? gradeByStudent.get(studentId)?.value.toString() ?? ''
-    const value = Number(rawValue)
-    if (!rawValue.trim() || !Number.isFinite(value) || value < 0 || value > 20) {
-      toast.error('La cote doit être comprise entre 0 et 20.')
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    setError('')
+    listGradeAssignments(controller.signal)
+      .then(setAssignments)
+      .catch((cause: unknown) => { if (!controller.signal.aborted) setError(getApiErrorMessage(cause)) })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
+  }, [retry])
+
+  const available = useMemo(() => assignments.filter((item) =>
+    user?.role !== 'enseignant' || String(item.id_enseignant) === user.teacherId,
+  ), [assignments, user])
+  const assignment = available.find((item) => String(item.id_affectation) === assignmentId)
+
+  useEffect(() => {
+    if (!assignment) {
+      setSheet(null)
       return
     }
+    const controller = new AbortController()
+    setSheet(null)
+    setSheetLoading(true)
+    setSheetError('')
+    loadGradeSheet(assignment.id_affectation, controller.signal)
+      .then(setSheet)
+      .catch((cause: unknown) => { if (!controller.signal.aborted) setSheetError(getApiErrorMessage(cause)) })
+      .finally(() => { if (!controller.signal.aborted) setSheetLoading(false) })
+    return () => controller.abort()
+  }, [assignment?.id_affectation, retry])
 
-    setSaving(studentId)
+  const semester = sheet?.semestres.find((item) => String(item.id_semestre) === semesterId) ?? sheet?.semestres[0]
+  const period = semester?.periodes.find((item) => String(item.id_periode) === periodId) ?? semester?.periodes[0]
+  const students = useMemo(() => [...(sheet?.eleves ?? [])].sort((a, b) =>
+    `${a.nom} ${a.postnom} ${a.prenom}`.localeCompare(`${b.nom} ${b.postnom} ${b.prenom}`, 'fr'),
+  ), [sheet?.eleves])
+  const gradeByStudent = useMemo(() => new Map((sheet?.cotes ?? [])
+    .filter((grade) => grade.id_periode === period?.id_periode)
+    .map((grade) => [grade.id_eleve, grade])), [sheet?.cotes, period?.id_periode])
+  const maximum = Number(sheet?.baremes.find((item) => item.id_periode === period?.id_periode)?.bareme_max ?? 20)
+  const savedCount = students.filter((student) => gradeByStudent.has(student.id_eleve)).length
+
+  const saveGrade = async (studentId: number) => {
+    if (!assignment || !period) return
     const existing = gradeByStudent.get(studentId)
-    const payload: Omit<Grade, 'id'> = {
-      studentId,
-      classId: assignment.classId,
-      assignmentId: assignment.id,
-      courseId: assignment.courseId,
-      semester,
-      period,
-      value,
-      maxValue: 20,
-      date: todayISO(),
+    const raw = drafts[studentId] ?? (existing ? String(Number(existing.valeur)) : '')
+    const value = Number(raw)
+    if (!raw.trim() || !Number.isFinite(value) || value < 0 || value > Math.min(20, maximum)) {
+      toast.error(`La cote doit être comprise entre 0 et ${Math.min(20, maximum)}.`)
+      return
     }
-    if (existing) db.update('grades', existing.id, payload)
-    else db.add('grades', payload)
-    setDrafts((current) => {
-      const next = { ...current }
-      delete next[studentId]
-      return next
-    })
-    setSaving(null)
-    toast.success('Cote enregistrée.')
+    setSaving(studentId)
+    try {
+      const saved = existing
+        ? await updateGrade(existing.id_cote, value)
+        : await createGrade({ id_affectation: assignment.id_affectation, id_periode: period.id_periode, id_eleve: studentId, valeur: value })
+      setSheet((current) => current ? {
+        ...current,
+        cotes: [...current.cotes.filter((item) => item.id_cote !== saved.id_cote), saved],
+      } : current)
+      setDrafts((current) => {
+        const next = { ...current }
+        delete next[studentId]
+        return next
+      })
+      toast.success('Cote enregistrée dans la base.')
+    } catch (cause) {
+      toast.error(getApiErrorMessage(cause))
+    } finally {
+      setSaving(null)
+    }
   }
+
+  if (user?.role === 'admin' || user?.role === 'secretaire') return <StudentGrades />
 
   return (
     <>
-      <PageHeader
-        eyebrow="Évaluations"
-        title="Saisie des cotes"
-        description="Choisissez votre classe, votre salle, le semestre et la période à évaluer."
-      />
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Classe" value={klass?.name ?? '—'} icon={ClipboardList} />
-        <StatCard label="Cours" value={course?.name ?? '—'} icon={ClipboardList} tone="gold" delay={60} />
-        <StatCard label="Cotes saisies" value={`${savedCount} / ${students.length}`} icon={Save} tone="success" delay={120} />
-      </div>
-      {!assignments.length ? (
+      <PageHeader eyebrow="Évaluations" title="Saisie des cotes" description="Choisissez une classe, son cours et sa salle, puis le semestre et la période à évaluer. L’examen compte double dans la moyenne semestrielle." />
+      {error && <p role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm text-destructive">{error} <Button variant="outline" onClick={() => setRetry((value) => value + 1)}>Réessayer</Button></p>}
+      {loading && <p role="status" className="text-sm text-muted-foreground">Chargement des affectations…</p>}
+      {!loading && !error && available.length === 0 && (
         <div className="rounded-2xl border bg-card p-8 text-center">
-          <h2 className="font-semibold">Aucune classe ou salle affectée</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {user?.role === 'enseignant'
-              ? 'Demandez à la direction de vous affecter un cours, une classe et une salle.'
-              : 'Créez d’abord les affectations dans le menu Pédagogie.'}
-          </p>
+          <h2 className="font-semibold">Aucun cours affecté</h2>
+          <p className="mt-2 text-sm text-muted-foreground">{user?.role === 'enseignant' ? 'Un administrateur doit affecter un cours, une classe et une salle à votre compte enseignant.' : 'Créez d’abord une affectation de cours à une classe et une salle.'}</p>
         </div>
-      ) : (
+      )}
+      {!loading && !error && available.length > 0 && (
+        <section className="rounded-2xl border bg-card p-4">
+          <label htmlFor="assignment" className="mb-1.5 block text-sm font-medium">Choisissez la classe, le cours et la salle</label>
+          <SimpleSelect id="assignment" ariaLabel="Classe, cours et salle" value={assignmentId}
+            onValueChange={(value) => { setAssignmentId(value); setSemesterId(''); setPeriodId(''); setDrafts({}) }}
+            options={available.map((item) => ({
+              value: String(item.id_affectation),
+              label: `${item.classe?.libelle ?? 'Classe'} · ${item.cours?.intitule ?? 'Cours'} · ${item.salle || 'Salle non précisée'}`,
+            }))} />
+        </section>
+      )}
+      {assignment && (
         <>
-          <section className="grid gap-3 rounded-2xl border bg-card p-4 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="sm:col-span-2">
-              <label htmlFor="assignment" className="mb-1.5 block text-xs font-medium text-muted-foreground">Classe · cours · salle</label>
-              <SimpleSelect
-                id="assignment"
-                ariaLabel="Classe, cours et salle"
-                value={assignment?.id ?? ''}
-                onValueChange={(value) => { setAssignmentId(value); setDrafts({}) }}
-                options={assignments.map((item) => {
-                  const assignedClass = data.classes.find((record) => record.id === item.classId)
-                  const assignedCourse = data.courses.find((record) => record.id === item.courseId)
-                  return { value: item.id, label: `${assignedClass?.name ?? 'Classe'} · ${assignedCourse?.name ?? 'Cours'} · ${item.room}` }
-                })}
-              />
-            </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <StatCard label="Classe et salle" value={`${assignment.classe?.libelle ?? 'Classe'} · ${assignment.salle || 'Salle non précisée'}`} icon={ClipboardList} />
+            <StatCard label="Cours" value={assignment.cours?.intitule ?? 'Cours'} icon={ClipboardList} tone="gold" delay={60} />
+            <StatCard label="Cotes saisies" value={`${savedCount} / ${students.length}`} icon={Save} tone="success" delay={120} />
+          </div>
+          <section className="grid gap-3 rounded-2xl border bg-card p-4 sm:grid-cols-2">
             <div>
               <label htmlFor="semester" className="mb-1.5 block text-xs font-medium text-muted-foreground">Semestre</label>
-              <SimpleSelect id="semester" ariaLabel="Semestre" value={semester} onValueChange={(value) => { setSemester(value as Semester); setDrafts({}) }} options={SEMESTERS.map((value) => ({ value, label: SEMESTER_LABELS[value] }))} />
+              <SimpleSelect id="semester" ariaLabel="Semestre" value={String(semester?.id_semestre ?? '')}
+                onValueChange={(value) => { setSemesterId(value); setPeriodId(''); setDrafts({}) }}
+                options={(sheet?.semestres ?? []).map((item) => ({ value: String(item.id_semestre), label: item.libelle }))} />
             </div>
             <div>
               <label htmlFor="period" className="mb-1.5 block text-xs font-medium text-muted-foreground">Évaluation</label>
-              <SimpleSelect id="period" ariaLabel="Période d’évaluation" value={period} onValueChange={(value) => { setPeriod(value as AssessmentPeriod); setDrafts({}) }} options={PERIODS.map((value) => ({ value, label: PERIOD_LABELS[value] }))} />
+              <SimpleSelect id="period" ariaLabel="Période d’évaluation" value={String(period?.id_periode ?? '')}
+                onValueChange={(value) => { setPeriodId(value); setDrafts({}) }}
+                options={(semester?.periodes ?? []).map((item) => ({ value: String(item.id_periode), label: item.libelle }))} />
             </div>
           </section>
-          <div className="rounded-xl border border-gold/30 bg-gold/5 p-4 text-sm">
-            Chaque cote est saisie sur 20. La moyenne semestrielle est calculée à partir des deux périodes et de l’examen, à poids égal.
-          </div>
-          <div className="overflow-hidden rounded-2xl border bg-card">
+          {sheetError && <p role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm text-destructive">{sheetError} <Button variant="outline" onClick={() => setRetry((value) => value + 1)}>Réessayer</Button></p>}
+          {sheetLoading && <p role="status" className="text-sm text-muted-foreground">Chargement des élèves et des cotes…</p>}
+          {sheet && <div className="overflow-hidden rounded-2xl border bg-card">
             <div className="overflow-x-auto">
               <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/50">
-                    <TableHead>Élève</TableHead><TableHead>Matricule</TableHead><TableHead>Cote / 20</TableHead><TableHead>Enregistrée</TableHead><TableHead />
-                  </TableRow>
-                </TableHeader>
+                <TableHeader><TableRow className="bg-muted/50"><TableHead>Élève</TableHead><TableHead>Matricule</TableHead><TableHead>Cote / {maximum}</TableHead><TableHead>Enregistrée</TableHead><TableHead /></TableRow></TableHeader>
                 <TableBody>
                   {students.map((student) => {
-                    const grade = gradeByStudent.get(student.id)
-                    const value = drafts[student.id] ?? (grade ? String(grade.value) : '')
-                    return (
-                      <TableRow key={student.id}>
-                        <TableCell className="font-medium">{student.firstName} {student.lastName}</TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">{student.matricule}</TableCell>
-                        <TableCell><Input type="number" min="0" max="20" step="0.25" value={value} disabled={!editable} onChange={(event) => setDrafts((current) => ({ ...current, [student.id]: event.target.value }))} aria-label={`Cote de ${student.firstName} ${student.lastName}`} className="h-9 w-28" /></TableCell>
-                        <TableCell className="text-muted-foreground">{grade ? fmtGrade(grade.value) : 'À saisir'}</TableCell>
-                        <TableCell className="text-right">
-                          {editable && <Button size="sm" variant="outline" disabled={saving === student.id || (value === (grade ? String(grade.value) : '') && Boolean(grade))} onClick={() => saveGrade(student.id)}><Save />Enregistrer</Button>}
-                        </TableCell>
-                      </TableRow>
-                    )
+                    const grade = gradeByStudent.get(student.id_eleve)
+                    const currentValue = grade ? String(Number(grade.valeur)) : ''
+                    const value = drafts[student.id_eleve] ?? currentValue
+                    const canEditGrade = editable && (!grade || user?.role === 'admin' || String(grade.id_user_saisie) === user?.id)
+                    return <TableRow key={student.id_eleve}>
+                      <TableCell className="font-medium">{student.prenom} {student.nom} {student.postnom}</TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{student.matricule}</TableCell>
+                      <TableCell><Input type="number" min="0" max={Math.min(20, maximum)} step="0.25" value={value} disabled={!canEditGrade || !period}
+                        onChange={(event) => setDrafts((current) => ({ ...current, [student.id_eleve]: event.target.value }))}
+                        aria-label={`Cote de ${student.prenom} ${student.nom}`} className="h-9 w-28" /></TableCell>
+                      <TableCell className="text-muted-foreground">{grade ? Number(grade.valeur).toFixed(2).replace('.', ',') : 'À saisir'}</TableCell>
+                      <TableCell className="text-right">{canEditGrade && <Button size="sm" variant="outline" disabled={saving !== null || !period || (Boolean(grade) && value === currentValue)} onClick={() => void saveGrade(student.id_eleve)}><Save />Enregistrer</Button>}</TableCell>
+                    </TableRow>
                   })}
-                  {!students.length && <TableRow><TableCell colSpan={5} className="py-12 text-center text-muted-foreground">Aucun élève inscrit dans cette classe.</TableCell></TableRow>}
+                  {students.length === 0 && <TableRow><TableCell colSpan={5} className="py-12 text-center text-muted-foreground">Aucun élève inscrit dans cette classe pour cette année.</TableCell></TableRow>}
                 </TableBody>
               </Table>
             </div>
-          </div>
+          </div>}
         </>
       )}
     </>

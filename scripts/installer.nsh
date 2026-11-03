@@ -11,6 +11,8 @@ Var ScolarisDatabasePortControl
 Var ScolarisDatabaseNameControl
 Var ScolarisDatabaseUserControl
 Var ScolarisDatabasePasswordControl
+Var ScolarisDatabaseModeControl
+Var ScolarisDatabaseKeepControl
 Var ScolarisDatabaseScrollControl
 Var ScolarisDatabaseRect
 Var ScolarisDatabaseViewportHeight
@@ -23,6 +25,8 @@ Var ScolarisDatabasePort
 Var ScolarisDatabaseName
 Var ScolarisDatabaseUser
 Var ScolarisDatabasePassword
+Var ScolarisUseSqlite
+Var ScolarisKeepDatabaseConfig
 
 !macro customPageAfterChangeDir
   Page custom ScolarisDatabasePageCreate ScolarisDatabasePageLeave
@@ -35,7 +39,7 @@ Var ScolarisDatabasePassword
 !macroend
 
 Function ScolarisDatabasePageCreate
-  !insertmacro MUI_HEADER_TEXT "Connexion à MySQL" "Saisissez les paramètres de votre serveur MySQL."
+  !insertmacro MUI_HEADER_TEXT "Base de données Scolaris" "Choisissez la base intégrée ou configurez votre serveur MySQL."
   ${NSD_InitCommonControlsEx} 0x4
 
   ${If} $ScolarisDatabaseInitialized != 1
@@ -44,6 +48,10 @@ Function ScolarisDatabasePageCreate
     StrCpy $ScolarisDatabaseName "Gestion_ecole"
     StrCpy $ScolarisDatabaseUser "root"
     StrCpy $ScolarisDatabasePassword ""
+    StrCpy $ScolarisUseSqlite 1
+    StrCpy $ScolarisKeepDatabaseConfig 0
+    IfFileExists "$APPDATA\scolaris\backend\.env" 0 +2
+      StrCpy $ScolarisKeepDatabaseConfig 1
     StrCpy $ScolarisDatabaseInitialized 1
   ${EndIf}
 
@@ -62,7 +70,7 @@ Function ScolarisDatabasePageCreate
 
   nsDialogs::CreateControl STATIC ${DEFAULT_STYLES}|${WS_CLIPCHILDREN} ${WS_EX_CONTROLPARENT} 0 0 278u 100% ""
   Pop $ScolarisDatabaseViewport
-  nsDialogs::CreateControl STATIC ${DEFAULT_STYLES}|${WS_CLIPCHILDREN} ${WS_EX_CONTROLPARENT} 0 0 278u 219u ""
+  nsDialogs::CreateControl STATIC ${DEFAULT_STYLES}|${WS_CLIPCHILDREN} ${WS_EX_CONTROLPARENT} 0 0 278u 265u ""
   Pop $ScolarisDatabaseContent
   System::Call 'user32::SetParent(p $ScolarisDatabaseContent, p $ScolarisDatabaseViewport)p.r0'
   System::Call 'user32::GetClientRect(p $ScolarisDatabaseViewport, p $ScolarisDatabaseRect)i.r0'
@@ -77,47 +85,63 @@ Function ScolarisDatabasePageCreate
   StrCpy $ScolarisDatabaseScrollOffset 0
   StrCpy $ScolarisDatabaseLastFocus 0
 
-  ${NSD_CreateLabel} 0 0 278u 26u "MySQL Server doit être installé et démarré. Faites défiler avec le curseur à droite ou passez au champ suivant avec Tab."
+  ${NSD_CreateCheckbox} 0 0 278u 18u "Conserver la configuration actuelle (mise à jour)"
+  Pop $ScolarisDatabaseKeepControl
+  !insertmacro ScolarisDatabaseAttach $ScolarisDatabaseKeepControl
+  ${If} $ScolarisKeepDatabaseConfig == 1
+    ${NSD_Check} $ScolarisDatabaseKeepControl
+  ${EndIf}
+  IfFileExists "$APPDATA\scolaris\backend\.env" +2 0
+    EnableWindow $ScolarisDatabaseKeepControl 0
+
+  ${NSD_CreateCheckbox} 0 22u 278u 18u "Base intégrée SQLite (sans serveur MySQL)"
+  Pop $ScolarisDatabaseModeControl
+  !insertmacro ScolarisDatabaseAttach $ScolarisDatabaseModeControl
+  ${If} $ScolarisUseSqlite == 1
+    ${NSD_Check} $ScolarisDatabaseModeControl
+  ${EndIf}
+
+  ${NSD_CreateLabel} 0 44u 278u 28u "Pour MySQL, décochez SQLite, puis renseignez les champs ci-dessous. Utilisez le curseur à droite ou la touche Tab pour défiler."
   Pop $0
   !insertmacro ScolarisDatabaseAttach $0
 
-  ${NSD_CreateLabel} 0 30u 278u 12u "Adresse du serveur"
+  ${NSD_CreateLabel} 0 77u 278u 12u "Adresse du serveur"
   Pop $0
   !insertmacro ScolarisDatabaseAttach $0
-  ${NSD_CreateText} 0 43u 278u 14u $ScolarisDatabaseHost
+  ${NSD_CreateText} 0 90u 278u 14u $ScolarisDatabaseHost
   Pop $ScolarisDatabaseHostControl
   !insertmacro ScolarisDatabaseAttach $ScolarisDatabaseHostControl
 
-  ${NSD_CreateLabel} 0 61u 278u 12u "Port"
+  ${NSD_CreateLabel} 0 108u 278u 12u "Port"
   Pop $0
   !insertmacro ScolarisDatabaseAttach $0
-  ${NSD_CreateNumber} 0 74u 278u 14u $ScolarisDatabasePort
+  ${NSD_CreateNumber} 0 121u 278u 14u $ScolarisDatabasePort
   Pop $ScolarisDatabasePortControl
   !insertmacro ScolarisDatabaseAttach $ScolarisDatabasePortControl
   ${NSD_Edit_SetTextLimit} $ScolarisDatabasePortControl 5
 
-  ${NSD_CreateLabel} 0 92u 278u 12u "Nom de la base de données"
+  ${NSD_CreateLabel} 0 139u 278u 12u "Nom de la base de données"
   Pop $0
   !insertmacro ScolarisDatabaseAttach $0
-  ${NSD_CreateText} 0 105u 278u 14u $ScolarisDatabaseName
+  ${NSD_CreateText} 0 152u 278u 14u $ScolarisDatabaseName
   Pop $ScolarisDatabaseNameControl
   !insertmacro ScolarisDatabaseAttach $ScolarisDatabaseNameControl
 
-  ${NSD_CreateLabel} 0 123u 278u 12u "Utilisateur MySQL"
+  ${NSD_CreateLabel} 0 170u 278u 12u "Utilisateur MySQL"
   Pop $0
   !insertmacro ScolarisDatabaseAttach $0
-  ${NSD_CreateText} 0 136u 278u 14u $ScolarisDatabaseUser
+  ${NSD_CreateText} 0 183u 278u 14u $ScolarisDatabaseUser
   Pop $ScolarisDatabaseUserControl
   !insertmacro ScolarisDatabaseAttach $ScolarisDatabaseUserControl
 
-  ${NSD_CreateLabel} 0 154u 278u 12u "Mot de passe MySQL (vide si le compte n'en a pas)"
+  ${NSD_CreateLabel} 0 201u 278u 12u "Mot de passe MySQL (vide si le compte n'en a pas)"
   Pop $0
   !insertmacro ScolarisDatabaseAttach $0
-  ${NSD_CreatePassword} 0 167u 278u 14u $ScolarisDatabasePassword
+  ${NSD_CreatePassword} 0 214u 278u 14u $ScolarisDatabasePassword
   Pop $ScolarisDatabasePasswordControl
   !insertmacro ScolarisDatabaseAttach $ScolarisDatabasePasswordControl
 
-  ${NSD_CreateLabel} 0 187u 278u 28u "Ces paramètres seront enregistrés dans le profil Windows de cet utilisateur. La base doit déjà exister."
+  ${NSD_CreateLabel} 0 234u 278u 28u "Les données seront enregistrées dans votre profil Windows. Pour MySQL, la base et le compte doivent déjà exister."
   Pop $0
   !insertmacro ScolarisDatabaseAttach $0
 
@@ -182,6 +206,8 @@ Function ScolarisDatabaseScroll
 FunctionEnd
 
 Function ScolarisDatabaseRemember
+  ${NSD_GetState} $ScolarisDatabaseKeepControl $ScolarisKeepDatabaseConfig
+  ${NSD_GetState} $ScolarisDatabaseModeControl $ScolarisUseSqlite
   ${NSD_GetText} $ScolarisDatabaseHostControl $ScolarisDatabaseHost
   ${NSD_GetText} $ScolarisDatabasePortControl $ScolarisDatabasePort
   ${NSD_GetText} $ScolarisDatabaseNameControl $ScolarisDatabaseName
@@ -191,6 +217,22 @@ FunctionEnd
 
 Function ScolarisDatabasePageLeave
   Call ScolarisDatabaseRemember
+
+  ${If} $ScolarisKeepDatabaseConfig == 1
+    Delete "$APPDATA\scolaris\backend\installer-db.ini"
+    Return
+  ${EndIf}
+
+  ${If} $ScolarisUseSqlite == 1
+    CreateDirectory "$APPDATA\scolaris\backend"
+    ClearErrors
+    FileOpen $0 "$APPDATA\scolaris\backend\installer-db.ini" w
+    IfErrors databaseSettingsWriteError
+    FileWriteUTF16LE /BOM $0 "DB_CONNECTION=sqlite$\r$\n"
+    FileClose $0
+    IfErrors databaseSettingsWriteError
+    Return
+  ${EndIf}
 
   ${If} $ScolarisDatabaseHost == ""
   ${OrIf} $ScolarisDatabaseName == ""
@@ -227,11 +269,12 @@ Function ScolarisDatabasePageLeave
   ClearErrors
   FileOpen $0 "$APPDATA\scolaris\backend\installer-db.ini" w
   IfErrors databaseSettingsWriteError
-  FileWrite $0 "DB_HOST=$ScolarisDatabaseHost$\r$\n"
-  FileWrite $0 "DB_PORT=$ScolarisDatabasePort$\r$\n"
-  FileWrite $0 "DB_DATABASE=$ScolarisDatabaseName$\r$\n"
-  FileWrite $0 "DB_USERNAME=$ScolarisDatabaseUser$\r$\n"
-  FileWrite $0 "DB_PASSWORD=$ScolarisDatabasePassword$\r$\n"
+  FileWriteUTF16LE /BOM $0 "DB_CONNECTION=mysql$\r$\n"
+  FileWriteUTF16LE $0 "DB_HOST=$ScolarisDatabaseHost$\r$\n"
+  FileWriteUTF16LE $0 "DB_PORT=$ScolarisDatabasePort$\r$\n"
+  FileWriteUTF16LE $0 "DB_DATABASE=$ScolarisDatabaseName$\r$\n"
+  FileWriteUTF16LE $0 "DB_USERNAME=$ScolarisDatabaseUser$\r$\n"
+  FileWriteUTF16LE $0 "DB_PASSWORD=$ScolarisDatabasePassword$\r$\n"
   FileClose $0
   IfErrors databaseSettingsWriteError
   Goto databaseSettingsWritten

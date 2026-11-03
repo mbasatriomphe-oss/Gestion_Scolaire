@@ -1,3 +1,4 @@
+import { DataLoader } from '@/components/app/data-loader'
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Plus_Jakarta_Sans, Playfair_Display } from 'next/font/google'
@@ -13,7 +14,7 @@ export const metadata: Metadata = {
   title: 'Scolaris — Gestion scolaire',
   description:
     "Plateforme premium de gestion d'établissement scolaire : élèves, enseignants, notes, bulletins, frais et rapports.",
-  generator: 'v0.app',
+  icons: { icon: '/icon.svg', apple: '/icon.png' },
 }
 
 export const viewport: Viewport = {
@@ -35,6 +36,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
           <TooltipProvider>
             {children}
+            <DataLoader />
             <Toaster richColors position="top-right" />
           </TooltipProvider>
         </ThemeProvider>

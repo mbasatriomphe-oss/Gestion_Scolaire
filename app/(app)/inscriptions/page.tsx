@@ -1,98 +1,98 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { Download, Plus, UserCheck, UserPlus, UserX } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { Download, GraduationCap, Plus, School, UserCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { ConfirmDialog } from '@/components/app/confirm-dialog'
 import { DataTable, type Column } from '@/components/app/data-table'
-import { EntityFormDialog, type FieldConfig } from '@/components/app/entity-form-dialog'
 import { PageHeader } from '@/components/app/page-header'
 import { PersonCell } from '@/components/app/person-cell'
-import { RowActions } from '@/components/app/row-actions'
 import { SimpleSelect } from '@/components/app/simple-select'
 import { StatCard } from '@/components/app/stat-card'
-import { StatusBadge } from '@/components/app/status-badge'
 import { matches, Toolbar } from '@/components/app/toolbar'
-import { useCanEdit } from '@/hooks/use-permission'
-import { useCrudState } from '@/hooks/use-crud-state'
-import { downloadCSV, formatDate, formatMoney, todayISO } from '@/lib/format'
-import { db, useDB } from '@/lib/store'
-import type { Enrollment } from '@/lib/types'
+import { EntityFormDialog, type FieldConfig } from '@/components/app/entity-form-dialog'
+import { getApiErrorMessage, request } from '@/lib/api'
+import { downloadCSV, formatDate } from '@/lib/format'
+import { loadStudentDirectory, type ApiEnrollment, type StudentDirectory } from '@/lib/students-api'
+import { useCurrentUser } from '@/lib/store'
 
 export default function EnrollmentsPage() {
-  const data = useDB()!
-  const editable = useCanEdit('inscriptions')
-  const crud = useCrudState<Enrollment>()
+  const user = useCurrentUser()
+  const [formOpen,setFormOpen] = useState(false)
+  const [studentFilter,setStudentFilter] = useState('all')
+  const [directory, setDirectory] = useState<StudentDirectory | null>(null)
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [deleting, setDeleting] = useState<Enrollment | null>(null)
-  const studentById = useMemo(() => new Map(data.students.map((student) => [student.id, student])), [data.students])
-  const classById = useMemo(() => new Map(data.classes.map((klass) => [klass.id, klass])), [data.classes])
-  const studentOptions = data.students.map((student) => ({ value: student.id, label: `${student.firstName} ${student.lastName} · ${student.matricule}` }))
-  const classOptions = data.classes.map((klass) => ({ value: klass.id, label: klass.name }))
-  const rows = data.enrollments.filter((enrollment) => {
-    const student = studentById.get(enrollment.studentId)
-    return (statusFilter === 'all' || enrollment.status === statusFilter) && matches(search, student?.firstName, student?.lastName, student?.matricule, classById.get(enrollment.classId)?.name, enrollment.schoolYear, enrollment.type)
+  const [status, setStatus] = useState('all')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [reload, setReload] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError('')
+    loadStudentDirectory()
+      .then((records) => { if (active) setDirectory(records) })
+      .catch((reason: unknown) => { if (active) setError(getApiErrorMessage(reason)) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [reload])
+
+  const students = useMemo(() => new Map(directory?.students.map((item) => [item.id_eleve, item]) ?? []), [directory])
+  const classes = useMemo(() => new Map(directory?.classes.map((item) => [item.id_classe, item]) ?? []), [directory])
+  const years = useMemo(() => new Map(directory?.years.map((item) => [item.id_annee, item]) ?? []), [directory])
+  const enrollments = directory?.enrollments ?? []
+  const rows = enrollments.filter((item) => {
+    const student = students.get(item.id_eleve)
+    return (studentFilter === 'all' || String(item.id_eleve) === studentFilter) && (status === 'all' || item.statut === status) && matches(
+      search, student?.nom, student?.postnom, student?.prenom, student?.matricule,
+      classes.get(item.id_classe)?.libelle, years.get(item.id_annee)?.libelle,
+    )
   })
-  const fields: FieldConfig[] = [
-    { name: 'studentId', label: 'Élève', type: 'select', options: studentOptions, required: true },
-    { name: 'classId', label: 'Classe', type: 'select', options: classOptions, required: true },
-    { name: 'schoolYear', label: 'Année scolaire', required: true },
-    { name: 'date', label: 'Date du dossier', type: 'date', required: true },
-    { name: 'type', label: 'Type', type: 'select', options: [{ value: 'Nouvelle', label: 'Nouvelle inscription' }, { value: 'Réinscription', label: 'Réinscription' }], required: true },
-    { name: 'fee', label: `Frais d'inscription (${data.settings.currency})`, type: 'number', min: 0, required: true },
-    { name: 'status', label: 'Décision', type: 'select', options: [{ value: 'en attente', label: 'En attente' }, { value: 'validée', label: 'Validée' }, { value: 'rejetée', label: 'Rejetée' }], required: true },
-  ]
-  const editing = crud.editing
-  const initial = {
-    studentId: editing?.studentId ?? '', classId: editing?.classId ?? '', schoolYear: editing?.schoolYear ?? data.settings.schoolYear,
-    date: editing?.date ?? todayISO(), type: editing?.type ?? 'Nouvelle', fee: String(editing?.fee ?? 50), status: editing?.status ?? 'en attente',
-  }
-  const columns: Column<Enrollment>[] = [
-    { key: 'student', header: 'Élève', sortValue: (item) => studentById.get(item.studentId)?.lastName ?? '', cell: (item) => {
-      const student = studentById.get(item.studentId)
-      return <PersonCell name={student ? `${student.firstName} ${student.lastName}` : 'Élève supprimé'} sub={student?.matricule ?? 'Dossier orphelin'} />
+  const columns: Column<ApiEnrollment>[] = [
+    { key: 'student', header: 'Élève', sortValue: (item) => students.get(item.id_eleve)?.nom ?? '', cell: (item) => {
+      const student = students.get(item.id_eleve)
+      return <PersonCell name={student ? `${student.prenom} ${student.nom} ${student.postnom}` : `Élève ${item.id_eleve}`} sub={student?.matricule ?? ''} />
     } },
-    { key: 'class', header: 'Classe', sortValue: (item) => classById.get(item.classId)?.name ?? '', cell: (item) => classById.get(item.classId)?.name ?? '—' },
-    { key: 'year', header: 'Année scolaire', sortValue: (item) => item.schoolYear, cell: (item) => item.schoolYear },
-    { key: 'type', header: 'Dossier', cell: (item) => item.type },
-    { key: 'date', header: 'Date', sortValue: (item) => item.date, cell: (item) => formatDate(item.date) },
-    { key: 'fee', header: 'Frais', sortValue: (item) => item.fee, cell: (item) => <span className="font-medium tabular-nums">{formatMoney(item.fee, data.settings.currency)}</span> },
-    { key: 'status', header: 'Décision', sortValue: (item) => item.status, cell: (item) => <StatusBadge status={item.status} /> },
-    { key: 'actions', header: '', className: 'w-12', cell: (item) => <RowActions onEdit={editable ? () => crud.openEdit(item) : undefined} onDelete={editable ? () => setDeleting(item) : undefined} /> },
+    { key: 'class', header: 'Classe', sortValue: (item) => classes.get(item.id_classe)?.libelle ?? '', cell: (item) => classes.get(item.id_classe)?.libelle ?? '—' },
+    { key: 'year', header: 'Année scolaire', sortValue: (item) => years.get(item.id_annee)?.libelle ?? '', cell: (item) => years.get(item.id_annee)?.libelle ?? '—' },
+    { key: 'date', header: 'Inscrit le', sortValue: (item) => item.date_inscription, cell: (item) => formatDate(item.date_inscription) },
+    { key: 'status', header: 'Statut', sortValue: (item) => item.statut, cell: (item) => item.statut === 'actif' ? 'Actif' : item.statut === 'abandon' ? 'Abandon' : 'Exclu' },
   ]
-  const pending = data.enrollments.filter((item) => item.status === 'en attente').length
-  const validated = data.enrollments.filter((item) => item.status === 'validée')
 
   return (
     <>
-      <PageHeader eyebrow="Finances" title="Inscriptions" description="Suivez les dossiers, les frais associés et les décisions de validation." actions={
+      <PageHeader eyebrow="Scolarité" title="Inscriptions" description="Élèves affectés aux classes et aux années scolaires, depuis la base de l’établissement." actions={
         <>
-          <Button variant="outline" onClick={() => { downloadCSV('inscriptions.csv', rows.map((item) => ({ Élève: studentById.get(item.studentId)?.matricule ?? '', Nom: studentById.get(item.studentId)?.lastName ?? '', Prénom: studentById.get(item.studentId)?.firstName ?? '', Classe: classById.get(item.classId)?.name ?? '', Année: item.schoolYear, Type: item.type, Date: item.date, Frais: item.fee, Statut: item.status }))); toast.success(`${rows.length} dossier(s) exporté(s).`) }}><Download />Exporter</Button>
-          {editable && <Button onClick={crud.openCreate}><Plus />Nouveau dossier</Button>}
+          <Button variant="outline" disabled={!rows.length} onClick={() => {
+            downloadCSV('inscriptions.csv', rows.map((item) => {
+              const student = students.get(item.id_eleve)
+              return { Matricule: student?.matricule ?? '', Nom: student?.nom ?? '', Prénom: student?.prenom ?? '', Classe: classes.get(item.id_classe)?.libelle ?? '', Année: years.get(item.id_annee)?.libelle ?? '', Date: item.date_inscription.slice(0, 10), Statut: item.statut }
+            }))
+            toast.success(`${rows.length} inscription(s) exportée(s).`)
+          }}><Download />Exporter</Button>
+          {['admin','secretaire','comptable'].includes(user?.role ?? '') && <><Button variant="outline" nativeButton={false} render={<Link href="/eleves" />}>Nouvel élève</Button><Button onClick={()=>setFormOpen(true)} disabled={!directory}><Plus />Inscrire / Réinscrire</Button></>}
         </>
       } />
+      {loading && <p role="status" className="text-sm text-muted-foreground">Chargement des inscriptions…</p>}
+      {error && <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-destructive/40 p-4 text-sm text-destructive"><span>{error}</span><Button variant="outline" onClick={() => setReload((value) => value + 1)}>Réessayer</Button></div>}
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Dossiers" value={String(data.enrollments.length)} icon={UserPlus} />
-        <StatCard label="À traiter" value={String(pending)} icon={UserX} tone="gold" delay={60} />
-        <StatCard label="Validés · frais associés" value={formatMoney(validated.reduce((sum, item) => sum + item.fee, 0), data.settings.currency)} icon={UserCheck} tone="success" delay={120} />
+        <StatCard label="Inscriptions" value={String(enrollments.length)} icon={GraduationCap} />
+        <StatCard label="Actives" value={String(enrollments.filter((item) => item.statut === 'actif').length)} icon={UserCheck} tone="success" delay={60} />
+        <StatCard label="Classes concernées" value={String(new Set(enrollments.map((item) => item.id_classe)).size)} icon={School} tone="gold" delay={120} />
       </div>
+      <section className="space-y-3 rounded-xl border bg-card p-4"><label className="text-sm font-medium">Parcours scolaire d’un élève</label><SimpleSelect ariaLabel="Élève à suivre" value={studentFilter} onValueChange={setStudentFilter} options={[{value:'all',label:'Tous les élèves'},...(directory?.students ?? []).map(s=>({value:String(s.id_eleve),label:s.matricule+' · '+s.nom+' '+s.postnom+' '+s.prenom}))]} />{studentFilter !== 'all' && <p className="text-sm">{new Set(enrollments.filter(e=>String(e.id_eleve)===studentFilter).map(e=>e.id_annee)).size} année(s) de scolarité dans l’établissement. Le matricule reste identique.</p>}</section>
+      <EntityFormDialog open={formOpen} onOpenChange={setFormOpen} title="Inscrire / Réinscrire un élève" description="Sélectionnez le dossier existant. L’application vérifie les résultats annuels et le niveau autorisé avant de réinscrire l’élève." fields={[
+       {name:'id_eleve',label:'Élève — matricule permanent',type:'select',required:true,options:(directory?.students ?? []).map(s=>({value:String(s.id_eleve),label:s.matricule+' · '+s.nom+' '+s.prenom}))},
+       {name:'id_annee',label:'Année ouverte',type:'select',required:true,resetOnChange:['id_classe'],options:(directory?.years ?? []).filter(y=>y.etat==='ouverte').map(y=>({value:String(y.id_annee),label:y.libelle}))},
+       {name:'id_classe',label:'Classe',type:'select',required:true,options:values=>(directory?.classes ?? []).filter(c=>c.actif && String(c.id_annee)===values.id_annee).map(c=>({value:String(c.id_classe),label:c.libelle}))},
+       {name:'date_inscription',label:"Date d’inscription",type:'date',required:true}
+      ] satisfies FieldConfig[]} initial={{id_eleve:studentFilter==='all'?'':studentFilter,id_annee:'',id_classe:'',date_inscription:new Date().toLocaleDateString('en-CA')}} onSubmit={async values=>{await request('/inscriptions',{method:'POST',body:JSON.stringify({...values,id_eleve:Number(values.id_eleve),id_annee:Number(values.id_annee),id_classe:Number(values.id_classe)})});setReload(v=>v+1);toast.success('Inscription enregistrée avec le matricule existant.')}} />
       <Toolbar search={search} onSearch={setSearch} placeholder="Élève, matricule, classe, année…">
-        <SimpleSelect ariaLabel="Filtrer par décision" value={statusFilter} onValueChange={setStatusFilter} options={[{ value: 'all', label: 'Toutes les décisions' }, { value: 'en attente', label: 'En attente' }, { value: 'validée', label: 'Validées' }, { value: 'rejetée', label: 'Rejetées' }]} />
+        <SimpleSelect ariaLabel="Filtrer les inscriptions par statut" value={status} onValueChange={setStatus} options={[{ value: 'all', label: 'Tous les statuts' }, { value: 'actif', label: 'Actives' }, { value: 'abandon', label: 'Abandons' }, { value: 'exclu', label: 'Exclusions' }]} />
       </Toolbar>
-      <DataTable rows={rows} columns={columns} getRowId={(item) => item.id} />
-      {editable && <EntityFormDialog open={crud.formOpen} onOpenChange={crud.setFormOpen} title={editing ? 'Modifier le dossier' : 'Nouveau dossier'} description="Le dossier est rattaché à un élève et à une classe existants." fields={fields} initial={initial} onSubmit={(values) => {
-        const duplicate = data.enrollments.some((item) => item.id !== editing?.id && item.studentId === values.studentId && item.schoolYear === values.schoolYear)
-        if (duplicate) return 'Un dossier existe déjà pour cet élève et cette année scolaire.'
-        const payload: Omit<Enrollment, 'id'> = {
-          studentId: values.studentId, classId: values.classId, schoolYear: values.schoolYear, date: values.date,
-          type: values.type as Enrollment['type'], status: values.status as Enrollment['status'], fee: Number(values.fee),
-        }
-        if (editing) { db.update('enrollments', editing.id, payload); toast.success('Dossier d’inscription mis à jour.') }
-        else { db.add('enrollments', payload); toast.success('Dossier d’inscription créé.') }
-      }} />}
-      <ConfirmDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)} description="Supprimer ce dossier d’inscription ? Cette action ne supprime pas l’élève ni ses paiements." onConfirm={() => { if (deleting) db.remove('enrollments', deleting.id); setDeleting(null); toast.success('Dossier supprimé.') }} />
+      {!loading && !error && <DataTable rows={rows} columns={columns} getRowId={(item) => String(item.id_inscription)} />}
     </>
   )
 }

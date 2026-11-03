@@ -139,6 +139,447 @@
   }
 }
 
+.report-preview {
+  width: 100%;
+  overflow-x: auto;
+  padding: 1rem 0 2rem;
+}
+
+.report-card {
+  page: bulletin-portrait;
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  width: 194mm;
+  min-height: 278mm;
+  margin: 0 auto;
+  padding: 2mm;
+  border: 1.5px solid #111;
+  color: #111;
+  background: #fff;
+  font: 8pt/1.12 Georgia, 'Times New Roman', serif;
+  box-shadow: 0 18px 48px rgb(15 23 42 / 12%);
+}
+
+.report-card::before,
+.report-card::after {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.report-card::before {
+  content: '';
+  inset: 72mm 22mm 46mm;
+  opacity: 0.11;
+  background:
+    radial-gradient(circle at 50% 48%, transparent 0 27%, #566d7b 27.5% 29%, transparent 29.5% 35%, #566d7b 35.5% 36.5%, transparent 37%),
+    linear-gradient(148deg, transparent 38%, #1470a4 39% 42%, #e2b92b 43% 45%, #d94953 46% 54%, #e2b92b 55% 57%, transparent 58%);
+  border-radius: 50%;
+}
+
+.report-card::after {
+  content: 'RÉPUBLIQUE DÉMOCRATIQUE DU CONGO';
+  top: 131mm;
+  left: 6mm;
+  width: 180mm;
+  transform: rotate(-29deg);
+  color: #536b77;
+  opacity: 0.085;
+  font: 700 16pt/1 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.05em;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.report-card > * { position: relative; z-index: 1; }
+
+.bulletin-masthead {
+  display: grid;
+  grid-template-columns: 29mm 1fr 21mm;
+  align-items: center;
+  height: 19mm;
+  gap: 2mm;
+  border-bottom: 1px solid #111;
+}
+
+.bulletin-flag {
+  position: relative;
+  width: 27mm;
+  height: 16mm;
+  margin-left: 1mm;
+  border: 1px solid #4b5563;
+  background: linear-gradient(152deg, #008cc9 0 40%, #f4d421 40% 44%, #ce2028 44% 57%, #f4d421 57% 61%, #008cc9 61%);
+}
+
+.bulletin-flag span {
+  position: absolute;
+  top: 0.1mm;
+  left: 0.8mm;
+  color: #f4d421;
+  font: 16pt/1 Arial, sans-serif;
+}
+
+.bulletin-republic {
+  text-align: center;
+  font-size: 9.4pt;
+  font-weight: 700;
+  line-height: 1.04;
+}
+
+.bulletin-seal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 17mm;
+  height: 17mm;
+  margin: auto;
+  border: 2px double #1d3548;
+  border-radius: 50%;
+  color: #143b61;
+  font: 700 8pt/1 Arial, sans-serif;
+  background: radial-gradient(circle, #b9e5ff 0 30%, #f7d437 31% 38%, #f8fafc 39% 55%, #1c5686 56% 64%, #fff 65%);
+}
+
+.bulletin-seal-mark {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  width: 8mm;
+  height: 9mm;
+  padding-left: 0.4mm;
+  clip-path: polygon(50% 0, 93% 17%, 83% 74%, 50% 100%, 17% 74%, 7% 17%);
+  color: #f4d421;
+  font: 700 8pt/1 Arial, sans-serif;
+  background: linear-gradient(152deg, #058bc4 0 38%, #f2cf2b 39% 43%, #d5242e 44% 57%, #f2cf2b 58% 62%, #058bc4 63%);
+}
+
+.bulletin-id-line {
+  display: flex;
+  align-items: center;
+  height: 7mm;
+  gap: 3mm;
+  padding: 0 2mm;
+  border-bottom: 1px solid #111;
+}
+
+.bulletin-boxes {
+  display: inline-grid;
+  flex: 1;
+  max-width: 150mm;
+  height: 5mm;
+  vertical-align: middle;
+}
+
+.bulletin-boxes span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #111;
+  border-right: 0;
+  font: 7pt/1 Arial, sans-serif;
+}
+
+.bulletin-boxes span:last-child { border-right: 1px solid #111; }
+
+.bulletin-province {
+  min-height: 5mm;
+  padding: 0.8mm 2mm;
+  border-bottom: 1px solid #111;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.bulletin-identity {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: minmax(5.5mm, auto);
+  border-bottom: 1px solid #111;
+}
+
+.bulletin-identity > div {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 1mm;
+  padding: 0 1.4mm;
+  border-bottom: 1px solid #111;
+  overflow-wrap: anywhere;
+}
+
+.bulletin-identity > div:nth-child(odd) { border-right: 1px solid #111; }
+.bulletin-identity > div:nth-last-child(-n + 2) { border-bottom: 0; }
+.bulletin-identity > div > strong { flex: none; }
+.bulletin-identity > div > span:not(.bulletin-boxes) {
+  flex: 1;
+  min-width: 0;
+  min-height: 3.2mm;
+  border-bottom: 1px dotted #555;
+  overflow-wrap: anywhere;
+}
+.bulletin-identity .bulletin-boxes { height: 3.8mm; }
+
+.report-table {
+  width: 100%;
+  height: 170mm;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 7.5pt;
+}
+
+.bulletin-branch-col { width: 22%; }
+.bulletin-score-col { width: 6.65%; }
+.bulletin-total-col { width: 7%; }
+.bulletin-repechage-col { width: 6.5%; }
+.bulletin-signature-col { width: 11.3%; }
+
+.report-table th,
+.report-table td {
+  height: 3.4mm;
+  padding: 0.3mm 0.45mm;
+  border: 1px solid #111;
+  text-align: center;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.report-table th:first-child,
+.report-table td:first-child { text-align: left; }
+
+.report-table thead th {
+  padding: 0.25mm;
+  font-size: 7pt;
+  font-weight: 700;
+  line-height: 1.02;
+}
+
+.report-table thead tr:nth-child(2) th:first-child {
+  font-size: 10pt;
+  text-align: center;
+  letter-spacing: 0.08em;
+}
+
+.report-table .bulletin-caption {
+  height: 5mm;
+  font-size: 7.5pt;
+  text-align: left;
+}
+
+.bulletin-caption span { float: right; }
+.report-table .bulletin-course-name { font-weight: 400; }
+.report-table .bulletin-maxima { font-weight: 700; }
+.report-table .bulletin-summary { font-weight: 700; }
+.report-table .bulletin-maxima td:nth-last-child(-n + 2),
+.report-table .bulletin-summary-shaded td:nth-last-child(-n + 2) { background: #111; }
+.report-table .bulletin-general-total { font-weight: 700; }
+.report-table .bulletin-empty-hint { font-weight: 400; font-style: italic; }
+.report-card-dense .report-table { font-size: 6.8pt; }
+.report-card-dense .report-table th,
+.report-card-dense .report-table td { height: 2.8mm; padding: 0.15mm 0.3mm; }
+
+.bulletin-decision {
+  display: grid;
+  grid-template-columns: 1fr 38mm;
+  min-height: 10mm;
+  border: 1px solid #111;
+  border-top: 0;
+}
+
+.bulletin-decision > div { padding: 1mm; }
+.bulletin-decision > div:first-child { border-right: 1px solid #111; }
+.bulletin-sign-line { display: block; width: 40mm; margin-top: 5mm; border-bottom: 1px dotted #333; }
+.bulletin-decision-choices { display: flex; flex-direction: column; gap: 0.4mm; font-size: 7pt; }
+.bulletin-decision-choices strong { font-size: 6.3pt; }
+
+.bulletin-footer {
+  display: flex;
+  flex-direction: column;
+  min-height: 36mm;
+  padding: 1mm 2mm;
+  font-size: 7pt;
+}
+
+.bulletin-footer p { margin: 0.4mm 0; }
+.bulletin-fill { display: inline-block; width: 18mm; border-bottom: 1px dotted #555; }
+.bulletin-made-at { align-self: flex-end; }
+.bulletin-signatures { display: grid; grid-template-columns: repeat(3, 1fr); align-items: end; flex: 1; text-align: center; font-weight: 700; }
+.bulletin-signatures span { padding-top: 3mm; }
+.bulletin-footer small { font-size: 5.8pt; }
+.bulletin-law { margin-top: 1mm; font-size: 6.2pt; font-style: italic; text-align: center; }
+
+.state-exam-card {
+  font: 6.5pt/1.05 Arial, Helvetica, sans-serif;
+}
+
+.state-exam-card::before,
+.state-exam-card::after { display: none; }
+
+.state-exam-card .bulletin-masthead { height: 18mm; }
+.state-exam-card .bulletin-republic { font: 700 8.8pt/1.05 Arial, Helvetica, sans-serif; }
+.state-exam-card .bulletin-id-line { height: 5.5mm; }
+.state-exam-card .bulletin-province { min-height: 4mm; padding: 0.35mm 1mm; }
+.state-exam-card .bulletin-identity { grid-auto-rows: minmax(4.5mm, auto); }
+.state-exam-card .bulletin-identity > div { padding: 0 0.8mm; }
+.state-exam-card .bulletin-identity > div > span:not(.bulletin-boxes) { min-height: 2.5mm; }
+.state-exam-card .bulletin-identity .state-exam-boxes { height: 3.1mm; }
+
+.state-exam-boxes {
+  display: inline-grid;
+  flex: 1;
+  max-width: 150mm;
+  height: 4mm;
+  vertical-align: middle;
+}
+
+.state-exam-boxes span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  border: 1px solid #111;
+  border-right: 0;
+  font: 6pt/1 Arial, Helvetica, sans-serif;
+}
+
+.state-exam-boxes span:last-child { border-right: 1px solid #111; }
+
+.state-exam-caption {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 4.8mm;
+  padding: 0.4mm 1mm;
+  border-bottom: 1px solid #111;
+  font-size: 7.2pt;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.state-exam-caption span { flex: none; margin-left: 2mm; }
+
+.state-exam-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 31mm;
+  align-items: stretch;
+  min-height: 170mm;
+}
+
+.state-exam-table {
+  width: 100%;
+  height: 170mm;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font: 5.65pt/1.02 Arial, Helvetica, sans-serif;
+}
+
+.state-exam-branch-col { width: 19%; }
+.state-exam-score-col { width: 6%; }
+.state-exam-general-col { width: 9%; }
+
+.state-exam-table th,
+.state-exam-table td {
+  height: 2.8mm;
+  padding: 0.15mm 0.2mm;
+  border: 1px solid #111;
+  text-align: center;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.state-exam-table th:first-child,
+.state-exam-table td:first-child { text-align: left; }
+.state-exam-table thead th { font-weight: 700; }
+.state-exam-table thead tr:first-child th { font-size: 6.4pt; }
+.state-exam-table thead tr:first-child th:first-child { text-align: center; }
+.state-exam-table .state-exam-course-row th { font-weight: 400; }
+.state-exam-table .state-exam-domain th {
+  background: #c5c5c5;
+  font-weight: 700;
+  text-align: center;
+}
+.state-exam-table .state-exam-subdomain th {
+  background: #e1e1e1;
+  font-style: italic;
+  font-weight: 400;
+  text-align: center;
+}
+.state-exam-table .state-exam-subtotal { font-weight: 700; }
+.state-exam-table .state-exam-summary th { font-weight: 700; }
+.state-exam-table .state-exam-black { background: #111; }
+.state-exam-table .state-exam-annual { font-weight: 700; }
+.state-exam-slashes { text-align: center; }
+
+.state-exam-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0 1mm;
+  border: 1px solid #111;
+  border-left: 0;
+  font: 7pt/1.28 Arial, Helvetica, sans-serif;
+}
+
+.state-exam-panel-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  height: 13.2mm;
+  padding-top: 0.8mm;
+  text-align: center;
+  font-size: 7.2pt;
+}
+
+.state-exam-panel-grid {
+  display: grid;
+  grid-template-columns: 27% 38% 35%;
+  grid-template-rows: 5mm 5mm;
+  margin: 0 -1mm;
+  border-top: 1px solid #111;
+  border-bottom: 1px solid #111;
+  font-size: 6pt;
+  text-align: center;
+}
+
+.state-exam-panel-grid span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid #111;
+  border-bottom: 1px solid #111;
+}
+
+.state-exam-panel-grid span:nth-child(3n) { border-right: 0; }
+.state-exam-panel-grid span:nth-last-child(-n + 3) { border-bottom: 0; }
+.state-exam-panel > p { margin: 3mm 0; }
+.state-exam-panel > strong { font-size: 7pt; }
+.state-exam-panel > .state-exam-boxes { width: 100%; flex: none; height: 5mm; margin: 4mm 0 8mm; }
+.state-exam-panel-bottom { display: flex; flex: 1; flex-direction: column; justify-content: flex-end; }
+.state-exam-panel-bottom p { margin: 0 0 5mm; }
+
+.state-exam-footer {
+  display: flex;
+  flex-direction: column;
+  min-height: 43mm;
+  padding: 1mm 3mm;
+  font: 6.5pt/1.15 Arial, Helvetica, sans-serif;
+}
+
+.state-exam-school-result { margin: 0; }
+.state-exam-made-at { align-self: flex-end; margin: 0; }
+.state-exam-signatures {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-items: center;
+  flex: 1;
+  text-align: center;
+  font-weight: 700;
+}
+.state-exam-footer small { font-size: 5.7pt; }
+.state-exam-card-dense .state-exam-table { font-size: 5.1pt; }
+.state-exam-card-dense .state-exam-table th,
+.state-exam-card-dense .state-exam-table td { height: 2.4mm; padding: 0.1mm; }
+
 @media print {
   .no-print {
     display: none !important;
@@ -147,9 +588,9 @@
     background: white !important;
   }
 
-  @page {
-    size: A4 landscape;
-    margin: 8mm;
+  @page bulletin-portrait {
+    size: A4 portrait;
+    margin: 6mm;
   }
 
   body:has(.report-card) {
@@ -165,6 +606,8 @@
     display: none !important;
   }
 
+  body:has(.report-card) aside + div { padding-left: 0 !important; min-height: 0 !important; }
+
   body:has(.report-card) main {
     width: 100% !important;
     max-width: none !important;
@@ -175,25 +618,23 @@
   }
 
   .report-card {
-    width: 100% !important;
+    width: 194mm !important;
+    min-height: 278mm !important;
     margin: 0 !important;
     color: #000 !important;
     background: #fff !important;
-    break-inside: avoid;
     box-shadow: none !important;
   }
 
+  .report-preview { padding: 0 !important; overflow: visible !important; }
+
+  .report-table tr { break-inside: avoid; }
+
+  .state-exam-table tr { break-inside: avoid; }
+
   .report-table th,
   .report-table td {
-    border: 1px solid #334155;
-    padding: 3px 4px;
-    text-align: center;
-    vertical-align: middle;
-    overflow-wrap: anywhere;
+    border-color: #111;
   }
 
-  .report-table th:first-child,
-  .report-table td:first-child {
-    text-align: left;
-  }
 }

@@ -29,7 +29,7 @@ export function LoginForm() {
       const user = await login(identifier, password)
       db.loginWithUser(user)
       toast.success(`Bienvenue, ${user.name}`)
-      router.push('/tableau-de-bord')
+      router.push(user.role === 'eleve' ? '/profil' : '/tableau-de-bord')
     } catch (loginError) {
       setError(getApiErrorMessage(loginError))
     } finally {

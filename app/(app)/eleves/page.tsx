@@ -31,7 +31,7 @@ export default function StudentsPage() {
 
 function StudentsView({ initialQuery }: { initialQuery: string }) {
   const user = useCurrentUser()
-  const editable = useCanEdit('eleves') && user?.role === 'admin'
+  const editable = useCanEdit('eleves')
   const crud = useCrudState<Student>()
   const [search, setSearch] = useState(initialQuery)
   const [classFilter, setClassFilter] = useState('all')
@@ -124,14 +124,13 @@ function StudentsView({ initialQuery }: { initialQuery: string }) {
       cell: (s) => (
         <RowActions
           extra={[{ label: 'Voir la fiche', icon: Eye, onClick: () => setViewing(s) }]}
-          onEdit={editable ? () => crud.openEdit(s) : undefined}
+          onEdit={user?.role === 'admin' ? () => crud.openEdit(s) : undefined}
         />
       ),
     },
   ]
 
   const e = crud.editing
-  const classCanChange = !e || activeClasses.some((klass) => String(klass.id_classe) === e.classId)
   const fields: FieldConfig[] = [
     { name: 'firstName', label: 'Prénom', required: true, placeholder: 'Aminata' },
     { name: 'lastName', label: 'Nom', required: true, placeholder: 'Diallo' },
@@ -145,8 +144,9 @@ function StudentsView({ initialQuery }: { initialQuery: string }) {
       validate: (v) => v >= todayISO() ? 'La date doit être antérieure à aujourd’hui.' : undefined,
     },
     { name: 'birthPlace', label: 'Lieu de naissance' },
-    ...(!classCanChange ? [] : [{
+    {
       name: 'classId',
+      visible: () => !crud.editing,
       label: 'Classe',
       type: 'select',
       required: false,
@@ -158,7 +158,7 @@ function StudentsView({ initialQuery }: { initialQuery: string }) {
         const count = directory?.enrollments.filter((enrollment) => enrollment.id_classe === klass.id_classe && enrollment.statut === 'actif' && String(enrollment.id_eleve) !== crud.editing?.id).length ?? 0
         return klass.capacite && count >= klass.capacite ? `La classe ${klass.libelle} est complète (${klass.capacite} places).` : undefined
       },
-    } satisfies FieldConfig]),
+    },
     { name: 'status', label: 'Statut', type: 'select', required: true, options: [{ value: 'actif', label: 'Actif' }, { value: 'inactif', label: 'Inactif' }] },
     { name: 'parentName', label: 'Parent / tuteur' },
     { name: 'parentPhone', label: 'Téléphone du parent', type: 'tel', placeholder: '+243 97 00 00 000' },
@@ -173,7 +173,7 @@ function StudentsView({ initialQuery }: { initialQuery: string }) {
     gender: e?.gender ?? '',
     birthDate: e?.birthDate ?? '',
     birthPlace: e?.birthPlace ?? '',
-    classId: e?.classId ?? '',
+    classId: e && activeClasses.some((klass) => String(klass.id_classe) === e.classId) ? e.classId : '',
     status: e?.status ?? 'actif',
     parentName: e?.parentName ?? '',
     parentPhone: e?.parentPhone ?? '',

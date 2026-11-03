@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'directeur' | 'enseignant' | 'comptable' | 'secretaire'
+export type Role = 'admin' | 'directeur' | 'enseignant' | 'comptable' | 'secretaire' | 'eleve'
 export type Gender = 'M' | 'F'
 export type Semester = 'S1' | 'S2'
 export type AssessmentPeriod = 'P1' | 'P2' | 'EXAMEN'

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { LogOut, Menu, Moon, RotateCcw, Sun, UserRound } from 'lucide-react'
+import { LogOut, Menu, Moon, Sun } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -14,13 +14,10 @@ import { db } from '@/lib/store'
 import type { AppUser } from '@/lib/types'
 import { SidebarNav } from './app-sidebar'
 import { CommandSearch } from './command-search'
-import { ConfirmDialog } from './confirm-dialog'
-import { NotificationsMenu } from './notifications-menu'
 import { Avatar } from './person-cell'
 
 export function Topbar({ user }: { user: AppUser }) {
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [resetOpen, setResetOpen] = useState(false)
   const { resolvedTheme, setTheme } = useTheme()
   const pathname = usePathname()
   const router = useRouter()
@@ -49,7 +46,6 @@ export function Topbar({ user }: { user: AppUser }) {
           <Sun className="hidden dark:block" />
           <Moon className="dark:hidden" />
         </Button>
-        <NotificationsMenu />
         <DropdownMenu>
           <DropdownMenuTrigger render={<button type="button" className="ml-1 flex items-center gap-2.5 rounded-full py-1 pr-1 pl-1 transition-colors hover:bg-muted sm:pr-3" aria-label="Menu utilisateur" />}>
             <Avatar name={user.name} className="size-8 ring-2 ring-gold/40" />
@@ -66,17 +62,7 @@ export function Topbar({ user }: { user: AppUser }) {
               </DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => toast.info(`Connecté en tant que ${ROLE_LABELS[user.role]}`)}>
-              <UserRound />
-              Mon profil
-            </DropdownMenuItem>
-            {user.role === 'admin' && (
-              <DropdownMenuItem onClick={() => setResetOpen(true)}>
-                <RotateCcw />
-                Réinitialiser les données
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => router.push('/profil')}>Mon profil et mot de passe</DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
               onClick={async () => {
@@ -98,17 +84,6 @@ export function Topbar({ user }: { user: AppUser }) {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <ConfirmDialog
-        open={resetOpen}
-        onOpenChange={setResetOpen}
-        title="Réinitialiser les données ?"
-        description="Toutes les modifications locales seront remplacées par le jeu de données de démonstration. Cette action est irréversible."
-        confirmLabel="Réinitialiser"
-        onConfirm={() => {
-          db.reset()
-          toast.success('Données de démonstration restaurées.')
-        }}
-      />
     </header>
   )
 }

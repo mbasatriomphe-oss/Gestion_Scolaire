@@ -19,9 +19,12 @@ import {
 import type { Role } from './types'
 
 export type ModuleKey =
+  | 'profil'
+  | 'journal-audit'
   | 'dashboard'
   | 'eleves'
   | 'enseignants'
+  | 'annees-scolaires'
   | 'classes'
   | 'cours'
   | 'affectations'
@@ -52,6 +55,7 @@ export const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { key: 'eleves', label: 'Élèves', href: '/eleves', icon: GraduationCap },
       { key: 'enseignants', label: 'Enseignants', href: '/enseignants', icon: Users },
+      { key: 'annees-scolaires', label: 'Années scolaires', href: '/annees-scolaires', icon: CalendarDays },
       { key: 'classes', label: 'Classes', href: '/classes', icon: School },
       { key: 'cours', label: 'Cours', href: '/cours', icon: BookOpen },
       { key: 'affectations', label: 'Affectations', href: '/affectations', icon: ClipboardCheck },
@@ -77,6 +81,8 @@ export const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
   {
     label: 'Administration',
     items: [
+      { key: 'profil', label: 'Mon profil', href: '/profil', icon: Users },
+      { key: 'journal-audit', label: 'Journal des opérations', href: '/journal-audit', icon: ClipboardList },
       { key: 'utilisateurs', label: 'Utilisateurs', href: '/utilisateurs', icon: ShieldCheck },
       { key: 'rapports', label: 'Rapports', href: '/rapports', icon: BarChart3 },
     ],
@@ -86,6 +92,7 @@ export const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
 export const ALL_NAV = NAV_GROUPS.flatMap((g) => g.items)
 
 export const ROLE_LABELS: Record<Role, string> = {
+  eleve: 'Élève',
   admin: 'Administrateur',
   directeur: 'Directeur',
   enseignant: 'Enseignant',
@@ -96,42 +103,44 @@ export const ROLE_LABELS: Record<Role, string> = {
 type Access = 'edit' | 'read'
 
 const ACCESS: Record<Role, Partial<Record<ModuleKey, Access>>> = {
-  admin: Object.fromEntries(ALL_NAV.map((n) => [n.key, 'edit'])) as Record<ModuleKey, Access>,
-  directeur: {
-    ...(Object.fromEntries(ALL_NAV.map((n) => [n.key, 'edit'])) as Record<ModuleKey, Access>),
-    utilisateurs: 'read',
-  },
-  enseignant: {
+  eleve: { profil: 'edit' },
+  admin: {
+    profil: 'edit',
+    'journal-audit': 'read',
     dashboard: 'read',
-    eleves: 'read',
+    eleves: 'edit',
+    enseignants: 'edit',
+    'annees-scolaires': 'edit',
+    classes: 'edit',
+    cours: 'edit',
+    affectations: 'edit',
+    notes: 'read',
+    bulletins: 'read',
+    inscriptions: 'edit',
+    frais: 'edit',
+    depenses: 'edit',
+    utilisateurs: 'edit',
+    rapports: 'read',
+  },
+  directeur: {},
+  enseignant: {
+    profil: 'edit',
+    dashboard: 'read',
     classes: 'read',
     cours: 'read',
     affectations: 'read',
-    'emplois-du-temps': 'read',
-    presences: 'edit',
     notes: 'edit',
-    bulletins: 'read',
   },
   comptable: {
+    profil: 'edit',
     dashboard: 'read',
-    eleves: 'read',
+    eleves: 'edit',
     inscriptions: 'edit',
     frais: 'edit',
     depenses: 'edit',
     rapports: 'read',
   },
-  secretaire: {
-    dashboard: 'read',
-    eleves: 'edit',
-    enseignants: 'edit',
-    classes: 'edit',
-    cours: 'read',
-    affectations: 'edit',
-    'emplois-du-temps': 'edit',
-    presences: 'edit',
-    inscriptions: 'edit',
-    bulletins: 'read',
-  },
+  secretaire: { profil: 'edit', dashboard: 'read', eleves: 'edit', inscriptions: 'edit', notes: 'read', bulletins: 'read', classes: 'read', cours: 'read' },
 }
 
 export function canAccess(role: Role, key: ModuleKey) {

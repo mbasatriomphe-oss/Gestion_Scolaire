@@ -16,8 +16,10 @@ export type FieldValues = Record<string, string>
 export interface FieldConfig {
   name: string
   label: string
-  type?: 'text' | 'email' | 'tel' | 'number' | 'date' | 'select' | 'textarea' | 'password' | 'color'
-  options?: Option[]
+  type?: 'text' | 'email' | 'tel' | 'number' | 'date' | 'select' | 'multiselect' | 'textarea' | 'password' | 'color'
+  options?: Option[] | ((values: FieldValues) => Option[])
+  visible?: (values: FieldValues) => boolean
+  resetOnChange?: string[]
   required?: boolean
   placeholder?: string
   min?: number
@@ -73,7 +75,12 @@ function EntityForm({ title, description, fields, initial, submitLabel = 'Enregi
   const [submitting, setSubmitting] = useState(false)
 
   const setValue = (name: string, value: string) => {
-    setValues((v) => ({ ...v, [name]: value }))
+    const resets = fields.find((field) => field.name === name)?.resetOnChange ?? []
+    setValues((current) => ({
+      ...current,
+      ...Object.fromEntries(resets.map((field) => [field, ''])),
+      [name]: value,
+    }))
     if (errors[name] || errors._form) setErrors((e) => ({ ...e, [name]: '', _form: '' }))
   }
 
@@ -82,6 +89,7 @@ function EntityForm({ title, description, fields, initial, submitLabel = 'Enregi
     if (submitting) return
     const next: Record<string, string> = {}
     for (const f of fields) {
+      if (f.visible && !f.visible(values)) continue
       const err = validateField(f, values[f.name] ?? '', values)
       if (err) next[f.name] = err
     }
@@ -111,6 +119,7 @@ function EntityForm({ title, description, fields, initial, submitLabel = 'Enregi
       </DialogHeader>
       <div className="grid gap-4 sm:grid-cols-2">
         {fields.map((f) => {
+          if (f.visible && !f.visible(values)) return null
           const id = `field-${f.name}`
           const error = errors[f.name]
           const errorId = `${id}-error`
@@ -120,8 +129,15 @@ function EntityForm({ title, description, fields, initial, submitLabel = 'Enregi
                 {f.label}
                 {f.required && <span className="text-gold">*</span>}
               </Label>
-              {f.type === 'select' ? (
-                <SimpleSelect id={id} value={values[f.name] ?? ''} onValueChange={(v) => setValue(f.name, v)} options={f.options ?? []} placeholder={f.placeholder} invalid={Boolean(error)} />
+              {f.type === 'multiselect' ? (
+                <div id={id} className="space-y-2 rounded-lg border p-3" role="group" aria-label={f.label}>
+                  {(typeof f.options === 'function' ? f.options(values) : f.options ?? []).map(option => {
+                    const selected = (values[f.name] || '').split(',').filter(Boolean)
+                    return <label key={option.value} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.includes(option.value)} onChange={event => setValue(f.name, (event.target.checked ? [...selected, option.value] : selected.filter(v => v !== option.value)).join(','))} />{option.label}</label>
+                  })}
+                </div>
+              ) : f.type === 'select' ? (
+                <SimpleSelect id={id} value={values[f.name] ?? ''} onValueChange={(v) => setValue(f.name, v)} options={typeof f.options === 'function' ? f.options(values) : f.options ?? []} placeholder={f.placeholder} invalid={Boolean(error)} />
               ) : f.type === 'textarea' ? (
                 <Textarea id={id} value={values[f.name] ?? ''} onChange={(e) => setValue(f.name, e.target.value)} placeholder={f.placeholder} aria-invalid={Boolean(error) || undefined} aria-describedby={error ? errorId : undefined} />
               ) : (

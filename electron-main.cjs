@@ -100,6 +100,7 @@ function serveStaticFile(request, response) {
 
 function createWindow(url) {
   mainWindow = new BrowserWindow({
+    icon: path.join(__dirname, 'icon.ico'),
     width: 1100,
     height: 760,
     minWidth: 360,
@@ -209,7 +210,7 @@ function getPhpArguments() {
   ]
 }
 
-function runBackendCommand(command, args) {
+function runBackendCommand(command, args, { captureOutput = false } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       phpExecutable,
@@ -227,7 +228,13 @@ function runBackendCommand(command, args) {
       },
     )
     const logPath = path.join(appDataDirectory, 'laravel-server.log')
-    child.stdout.pipe(backendLogStream, { end: false })
+    let output = ''
+    if (captureOutput) {
+      child.stdout.setEncoding('utf8')
+      child.stdout.on('data', (chunk) => { output += chunk })
+    } else {
+      child.stdout.pipe(backendLogStream, { end: false })
+    }
     child.stderr.pipe(backendLogStream, { end: false })
     let settled = false
     const timeout = setTimeout(() => {
@@ -243,12 +250,12 @@ function runBackendCommand(command, args) {
       clearTimeout(timeout)
       reject(new Error(`Impossible d’exécuter la commande Laravel "${command}" : ${error.message}`))
     })
-    child.once('exit', (code) => {
+    child.once('close', (code) => {
       if (settled) return
       settled = true
       clearTimeout(timeout)
       if (code === 0) {
-        resolve()
+        resolve(captureOutput ? output : undefined)
       } else {
         reject(
           new Error(
@@ -260,46 +267,88 @@ function runBackendCommand(command, args) {
   })
 }
 
+async function bootstrapAdministrator() {
+  const output = await runBackendCommand('auth:bootstrap-desktop-admin', ['--no-interaction'], { captureOutput: true })
+  let credentials
+  try {
+    credentials = JSON.parse(output.trim())
+  } catch {
+    throw new Error('Impossible de lire le résultat de la préparation du premier administrateur.')
+  }
+
+  if (!credentials || typeof credentials.created !== 'boolean') {
+    throw new Error('La préparation du premier administrateur a renvoyé un résultat invalide.')
+  }
+  if (!credentials.created) return
+  if (typeof credentials.login !== 'string' || typeof credentials.password !== 'string') {
+    throw new Error('Les identifiants du premier administrateur sont incomplets.')
+  }
+
+  await dialog.showMessageBox({
+    type: 'info',
+    title: 'Premier accès à Scolaris',
+    message: 'Votre compte administrateur a été créé.',
+    detail: `Identifiant : ${credentials.login}\nMot de passe : ${credentials.password}\n\nCes identifiants sont affichés une seule fois. Conservez-les avant de continuer. Vous pourrez modifier votre mot de passe après connexion.`,
+    buttons: ['J’ai conservé mes identifiants'],
+    noLink: true,
+  })
+}
+
 function applyInstallerDatabaseSettings(appEnvironmentPath) {
   if (!fs.existsSync(installerDatabaseSettingsPath)) return
 
-  const allowedKeys = ['DB_HOST', 'DB_PORT', 'DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD']
+  const allowedKeys = ['DB_CONNECTION', 'DB_HOST', 'DB_PORT', 'DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD']
   const settings = new Map()
-  const lines = fs.readFileSync(installerDatabaseSettingsPath, 'utf8').split(/\r?\n/)
+  const settingsBytes = fs.readFileSync(installerDatabaseSettingsPath)
+  const settingsText = settingsBytes.length >= 2 && settingsBytes[0] === 0xff && settingsBytes[1] === 0xfe
+    ? settingsBytes.toString('utf16le')
+    : settingsBytes.toString('utf8')
+  const lines = settingsText.replace(/^\uFEFF/, '').split(/\r?\n/)
 
   for (const line of lines) {
     if (!line) continue
     const separator = line.indexOf('=')
     if (separator <= 0) {
-      throw new Error('Le fichier de configuration MySQL de l’installateur est invalide.')
+      throw new Error('Le fichier de configuration de l’installateur est invalide.')
     }
 
     const key = line.slice(0, separator)
     const value = line.slice(separator + 1)
     if (!allowedKeys.includes(key) || settings.has(key) || /[\r\n]/.test(value)) {
-      throw new Error('Le fichier de configuration MySQL de l’installateur est invalide.')
+      throw new Error('Le fichier de configuration de l’installateur est invalide.')
     }
     settings.set(key, value)
   }
 
-  for (const key of allowedKeys) {
-    if (!settings.has(key)) {
-      throw new Error('La configuration MySQL de l’installateur est incomplète.')
+  const connection = settings.get('DB_CONNECTION') ?? 'mysql'
+  if (connection === 'sqlite') {
+    const databasePath = path.join(appDataDirectory, 'database.sqlite')
+    fs.writeFileSync(databasePath, '', { flag: 'a' })
+    settings.clear()
+    settings.set('DB_CONNECTION', 'sqlite')
+    settings.set('DB_DATABASE', databasePath)
+  } else if (connection === 'mysql') {
+    for (const key of ['DB_HOST', 'DB_PORT', 'DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD']) {
+      if (!settings.has(key)) {
+        throw new Error('La configuration MySQL de l’installateur est incomplète.')
+      }
     }
-  }
-
-  const port = settings.get('DB_PORT')
-  if (!/^\d{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
-    throw new Error('Le port MySQL configuré par l’installateur est invalide.')
-  }
-  for (const key of ['DB_HOST', 'DB_DATABASE', 'DB_USERNAME']) {
-    if (!settings.get(key).trim()) {
-      throw new Error('La configuration MySQL de l’installateur est incomplète.')
+    const port = settings.get('DB_PORT')
+    if (!/^\d{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
+      throw new Error('Le port MySQL configuré par l’installateur est invalide.')
     }
+    for (const key of ['DB_HOST', 'DB_DATABASE', 'DB_USERNAME']) {
+      if (!settings.get(key).trim()) {
+        throw new Error('La configuration MySQL de l’installateur est incomplète.')
+      }
+    }
+    settings.set('DB_CONNECTION', 'mysql')
+  } else {
+    throw new Error('Le type de base de données de l’installateur est invalide.')
   }
 
   let environment = fs.readFileSync(appEnvironmentPath, 'utf8')
-  for (const key of allowedKeys) {
+  for (const key of settings.keys()) {
     const escapedValue = `"${settings
       .get(key)
       .replace(/\\/g, '\\\\')
@@ -400,18 +449,9 @@ function startBackendProcess() {
 }
 
 async function ensureBackend() {
-  try {
-    await probeBackend()
-    return
-  } catch (error) {
-    if (error.code !== 'ECONNREFUSED') {
-      throw new Error(`Le service déjà présent sur ${backendUrl} n’est pas l’API Laravel attendue.`)
-    }
-  }
-
   if (!(await isPortAvailable(backendPort))) {
     throw new Error(
-      `Le port ${backendPort} est déjà utilisé par un autre service. Fermez-le puis relancez Scolaris.`,
+      `Le port ${backendPort} est déjà utilisé. Fermez l’ancienne version de Scolaris ou le serveur qui utilise ce port, puis relancez l’application.`,
     )
   }
 
@@ -424,6 +464,7 @@ async function ensureBackend() {
 
   backendProcess = startBackendProcess()
   await waitForBackend()
+  await bootstrapAdministrator()
 
   return appEnvironmentPath
 }
@@ -455,7 +496,18 @@ function startStaticServer() {
   })
 }
 
-app.whenReady().then(async () => {
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+
+if (!hasSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  })
+
+  app.whenReady().then(async () => {
   try {
     await ensureBackend()
 
@@ -476,7 +528,8 @@ app.whenReady().then(async () => {
     stopBackend()
     app.quit()
   }
-})
+  })
+}
 
 app.on('before-quit', () => {
   staticServer?.close()

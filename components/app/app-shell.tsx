@@ -94,7 +94,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (!user) return null
 
   const moduleKey = moduleFromPath(pathname)
-  const allowed = !moduleKey || canAccess(user.role, moduleKey)
+  const allowed = moduleKey !== null && canAccess(user.role, moduleKey)
 
   return (
     <div className="min-h-svh bg-background">

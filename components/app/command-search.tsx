@@ -2,10 +2,9 @@
 
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowRight, GraduationCap, Search, Users } from 'lucide-react'
+import { ArrowRight, Search } from 'lucide-react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { ALL_NAV, canAccess } from '@/lib/permissions'
-import { useDB } from '@/lib/store'
 import type { Role } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { matches } from './toolbar'
@@ -22,7 +21,6 @@ export function CommandSearch({ role }: { role: Role }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
-  const data = useDB()
   const router = useRouter()
 
   useEffect(() => {
@@ -37,22 +35,8 @@ export function CommandSearch({ role }: { role: Role }) {
   }, [])
 
   const results = useMemo<ResultItem[]>(() => {
-    const pages = ALL_NAV.filter((n) => canAccess(role, n.key) && matches(query, n.label)).map((n) => ({ id: n.key, label: n.label, sub: 'Module', href: n.href, icon: n.icon }))
-    if (!data || !query.trim()) return pages
-    const students = canAccess(role, 'eleves')
-      ? data.students
-          .filter((s) => matches(query, s.firstName, s.lastName, s.matricule))
-          .slice(0, 6)
-          .map((s) => ({ id: s.id, label: `${s.firstName} ${s.lastName}`, sub: `Élève · ${s.matricule}`, href: `/eleves?q=${encodeURIComponent(s.matricule)}`, icon: GraduationCap }))
-      : []
-    const teachers = canAccess(role, 'enseignants')
-      ? data.teachers
-          .filter((t) => matches(query, t.firstName, t.lastName, t.specialty))
-          .slice(0, 4)
-          .map((t) => ({ id: t.id, label: `${t.firstName} ${t.lastName}`, sub: `Enseignant · ${t.specialty}`, href: `/enseignants?q=${encodeURIComponent(t.lastName)}`, icon: Users }))
-      : []
-    return [...pages, ...students, ...teachers]
-  }, [query, data, role])
+    return ALL_NAV.filter((n) => canAccess(role, n.key) && matches(query, n.label)).map((n) => ({ id: n.key, label: n.label, sub: 'Module', href: n.href, icon: n.icon }))
+  }, [query, role])
 
   const go = (item: ResultItem) => {
     setOpen(false)
@@ -98,7 +82,7 @@ export function CommandSearch({ role }: { role: Role }) {
                 setActive(0)
               }}
               onKeyDown={onKeyDown}
-              placeholder="Élève, enseignant, module…"
+              placeholder="Rechercher une page…"
               className="h-12 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               aria-label="Rechercher"
             />

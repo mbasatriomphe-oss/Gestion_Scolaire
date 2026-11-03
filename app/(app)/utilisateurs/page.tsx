@@ -1,117 +1,113 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { KeyRound, Plus, ShieldCheck, Users } from 'lucide-react'
 import { toast } from 'sonner'
-import { ConfirmDialog } from '@/components/app/confirm-dialog'
 import { DataTable, type Column } from '@/components/app/data-table'
 import { EntityFormDialog, type FieldConfig } from '@/components/app/entity-form-dialog'
 import { PageHeader } from '@/components/app/page-header'
 import { PersonCell } from '@/components/app/person-cell'
-import { RowActions } from '@/components/app/row-actions'
 import { StatCard } from '@/components/app/stat-card'
 import { StatusBadge } from '@/components/app/status-badge'
 import { Button } from '@/components/ui/button'
-import { useCanEdit } from '@/hooks/use-permission'
-import { useCrudState } from '@/hooks/use-crud-state'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { getApiErrorMessage, type ApiUser } from '@/lib/api'
 import { formatDate } from '@/lib/format'
-import { db, useCurrentUser, useDB } from '@/lib/store'
-import { ROLE_LABELS } from '@/lib/permissions'
-import type { AppUser, Role } from '@/lib/types'
+import { useCurrentUser } from '@/lib/store'
+import { createAccountant, listUsers, setAccountActive } from '@/lib/users-api'
 
-const roleOptions = Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label }))
+const roleLabels: Record<string, string> = {
+  secretaire: 'Secrétaire',
+  admin: 'Administrateur',
+  enseignant: 'Enseignant',
+  comptable: 'Comptable',
+  eleve: 'Élève',
+}
 
 export default function UsersPage() {
-  const data = useDB()!
   const currentUser = useCurrentUser()
-  const editable = useCanEdit('utilisateurs')
-  const crud = useCrudState<AppUser>()
-  const [deleting, setDeleting] = useState<AppUser | null>(null)
-  const user = crud.editing
+  const [users, setUsers] = useState<ApiUser[]>([])
+  const [createOpen, setCreateOpen] = useState(false)
+  const [credentials, setCredentials] = useState<{ login: string; password: string } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [reload, setReload] = useState(0)
+  const [changingId, setChangingId] = useState<number | null>(null)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError('')
+    listUsers()
+      .then((records) => { if (active) setUsers(records) })
+      .catch((reason: unknown) => { if (active) setError(getApiErrorMessage(reason)) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [reload])
 
   const fields: FieldConfig[] = [
+    { name: 'role', label: 'Rôle', type: 'select', required: true, options: [{value:'comptable',label:'Comptable'}, {value:'secretaire',label:'Secrétaire'}] },
     { name: 'name', label: 'Nom complet', required: true },
-    {
-      name: 'email',
-      label: 'Adresse e-mail',
-      type: 'email',
-      required: true,
-      validate: (value) => data.users.some((item) => item.email.toLowerCase() === value.toLowerCase() && item.id !== user?.id) ? 'Cette adresse e-mail est déjà utilisée.' : undefined,
-    },
-    { name: 'role', label: 'Rôle', type: 'select', required: true, options: roleOptions },
-    { name: 'teacherId', label: 'Profil enseignant', type: 'select', options: [{ value: '', label: 'Aucun profil enseignant' }, ...data.teachers.map((teacher) => ({ value: teacher.id, label: `${teacher.firstName} ${teacher.lastName}` }))] },
-    { name: 'password', label: user ? 'Nouveau mot de passe (laisser vide pour conserver)' : 'Mot de passe', type: 'password', required: !user },
-    { name: 'status', label: 'Statut', type: 'select', required: true, options: [{ value: 'actif', label: 'Actif' }, { value: 'inactif', label: 'Désactivé' }] },
+    { name: 'login', label: 'Identifiant de connexion', required: true },
+    { name: 'email', label: 'Adresse e-mail', type: 'email', required: true },
+    { name: 'password', label: 'Mot de passe initial', type: 'password', required: true, validate: (value) => value.length < 8 ? 'Au moins 8 caractères.' : undefined },
+    { name: 'passwordConfirmation', label: 'Confirmer le mot de passe', type: 'password', required: true, validate: (value, values) => value !== values.password ? 'Les mots de passe ne correspondent pas.' : undefined },
   ]
-
-  const columns: Column<AppUser>[] = [
-    { key: 'user', header: 'Utilisateur', sortValue: (item) => item.name, cell: (item) => <PersonCell name={item.name} sub={item.email} /> },
-    { key: 'role', header: 'Rôle', sortValue: (item) => item.role, cell: (item) => ROLE_LABELS[item.role] },
-    { key: 'lastLogin', header: 'Dernière connexion', sortValue: (item) => item.lastLogin ?? '', cell: (item) => item.lastLogin ? formatDate(item.lastLogin) : 'Jamais', className: 'text-muted-foreground' },
-    { key: 'status', header: 'Statut', sortValue: (item) => item.status, cell: (item) => <StatusBadge status={item.status} /> },
-    { key: 'actions', header: '', className: 'w-12', cell: (item) => <RowActions onEdit={editable ? () => crud.openEdit(item) : undefined} onDelete={editable && item.id !== currentUser?.id ? () => setDeleting(item) : undefined} /> },
+  const columns: Column<ApiUser>[] = [
+    { key: 'user', header: 'Utilisateur', sortValue: (item) => item.nom_complet, cell: (item) => <PersonCell name={item.nom_complet} sub={item.login} /> },
+    { key: 'email', header: 'E-mail', sortValue: (item) => item.email ?? '', cell: (item) => item.email ?? '—' },
+    { key: 'role', header: 'Rôle', sortValue: (item) => item.role, cell: (item) => roleLabels[item.role] ?? item.role },
+    { key: 'lastLogin', header: 'Dernière connexion', sortValue: (item) => item.derniere_connexion ?? '', cell: (item) => item.derniere_connexion ? formatDate(item.derniere_connexion) : 'Jamais' },
+    { key: 'status', header: 'Statut', sortValue: (item) => item.actif ? 'actif' : 'inactif', cell: (item) => <StatusBadge status={item.actif ? 'actif' : 'inactif'} /> },
+    { key: 'action', header: '', cell: (item) => ['comptable', 'secretaire'].includes(item.role) && String(item.id_user) !== currentUser?.id ? (
+      <Button variant="ghost" size="sm" disabled={changingId === item.id_user} onClick={async () => {
+        setChangingId(item.id_user)
+        try {
+          const updated = await setAccountActive(item.id_user, !item.actif)
+          setUsers((records) => records.map((record) => record.id_user === item.id_user ? updated : record))
+          toast.success(updated.actif ? 'Compte réactivé.' : 'Compte désactivé.')
+        } catch (reason) {
+          toast.error(getApiErrorMessage(reason))
+        } finally {
+          setChangingId(null)
+        }
+      }}>{item.actif ? 'Désactiver' : 'Réactiver'}</Button>
+    ) : null },
   ]
 
   return (
     <>
-      <PageHeader
-        eyebrow="Administration"
-        title="Utilisateurs"
-        description="Gérez les comptes de démonstration et leurs rôles d’accès."
-        actions={editable && <Button onClick={crud.openCreate}><Plus />Nouvel utilisateur</Button>}
-      />
+      <PageHeader eyebrow="Administration" title="Utilisateurs" description="Comptes enregistrés dans la base de l’établissement. Les comptes enseignants et élèves sont créés avec leurs fiches." actions={
+        currentUser?.role === 'admin' && <Button onClick={() => setCreateOpen(true)}><Plus />Nouvel utilisateur</Button>
+      } />
+      {loading && <p role="status" className="text-sm text-muted-foreground">Chargement des comptes…</p>}
+      {error && <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-destructive/40 p-4 text-sm text-destructive"><span>{error}</span><Button variant="outline" onClick={() => setReload((value) => value + 1)}>Réessayer</Button></div>}
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Comptes" value={String(data.users.length)} icon={Users} hint={`${data.users.filter((item) => item.status === 'actif').length} actifs`} />
-        <StatCard label="Rôles disponibles" value={String(roleOptions.length)} icon={ShieldCheck} tone="gold" delay={60} />
-        <StatCard label="Comptes enseignants" value={String(data.users.filter((item) => item.role === 'enseignant').length)} icon={KeyRound} tone="success" delay={120} />
+        <StatCard label="Comptes" value={String(users.length)} icon={Users} hint={`${users.filter((item) => item.actif).length} actifs`} />
+        <StatCard label="Comptables" value={String(users.filter((item) => item.role === 'comptable').length)} icon={ShieldCheck} tone="gold" delay={60} />
+        <StatCard label="Enseignants" value={String(users.filter((item) => item.role === 'enseignant').length)} icon={KeyRound} tone="success" delay={120} />
       </div>
-      {!editable && <p className="rounded-xl border bg-muted/40 p-3 text-sm text-muted-foreground">Vous pouvez consulter la liste, mais seuls les administrateurs peuvent modifier les comptes.</p>}
-      <DataTable rows={data.users} columns={columns} getRowId={(item) => item.id} />
-      <EntityFormDialog
-        open={crud.formOpen}
-        onOpenChange={crud.setFormOpen}
-        title={user ? 'Modifier un utilisateur' : 'Nouvel utilisateur'}
-        description="Simulation locale uniquement : les comptes seront gérés par l’API Laravel lors de son intégration."
-        fields={fields}
-        initial={{
-          name: user?.name ?? '',
-          email: user?.email ?? '',
-          role: user?.role ?? 'secretaire',
-          teacherId: user?.teacherId ?? '',
-          password: '',
-          status: user?.status ?? 'actif',
-        }}
-        onSubmit={(values) => {
-          const role = values.role as Role
-          if (role === 'enseignant' && !values.teacherId) return 'Un compte enseignant doit être lié à un profil enseignant.'
-          const payload = {
-            name: values.name,
-            email: values.email,
-            role,
-            status: values.status as AppUser['status'],
-            teacherId: values.teacherId || undefined,
-          }
-          if (user) {
-            db.update('users', user.id, { ...payload, ...(values.password ? { password: values.password } : {}) })
-            toast.success('Compte utilisateur mis à jour.')
-          } else {
-            db.add('users', { ...payload, password: values.password, lastLogin: null } as Omit<AppUser, 'id'>)
-            toast.success('Compte utilisateur créé.')
-          }
-        }}
-      />
-      <ConfirmDialog
-        open={Boolean(deleting)}
-        onOpenChange={(open) => !open && setDeleting(null)}
-        description={`Supprimer le compte de ${deleting?.name ?? ''} ? Cette action est irréversible dans la simulation locale.`}
-        onConfirm={() => {
-          if (deleting) {
-            db.remove('users', deleting.id)
-            toast.success('Compte utilisateur supprimé.')
-          }
-          setDeleting(null)
-        }}
-      />
+      {!loading && !error && <DataTable rows={users} columns={columns} getRowId={(item) => String(item.id_user)} />}
+
+      <EntityFormDialog open={createOpen} onOpenChange={setCreateOpen} title="Nouveau compte" description="Choisissez les droits du comptable ou du secrétaire." fields={fields} initial={{ role: 'comptable', name: '', login: '', email: '', password: '', passwordConfirmation: '' }} onSubmit={async (values) => {
+        const created = await createAccountant(values as { login: string; email: string; name: string; password: string; passwordConfirmation: string; role: string })
+        setUsers((records) => [created, ...records])
+        setCredentials({ login: values.login, password: values.password })
+        toast.success('Compte créé.')
+      }} />
+      <Dialog open={Boolean(credentials) && !createOpen} onOpenChange={(open) => { if (!open) setCredentials(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Identifiants du compte</DialogTitle>
+            <DialogDescription>Conservez ces identifiants maintenant. Le mot de passe initial ne sera plus affiché après fermeture.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 rounded-lg border p-4 text-sm">
+            <p>Identifiant : <code className="select-all font-semibold">{credentials?.login}</code></p>
+            <p>Mot de passe initial : <code className="select-all font-semibold">{credentials?.password}</code></p>
+          </div>
+          <Button onClick={() => setCredentials(null)}>J’ai conservé ces identifiants</Button>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

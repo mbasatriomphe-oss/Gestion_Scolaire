@@ -1,3 +1,4 @@
+import { changeLoading } from './loading'
 import type { AppUser, Role } from './types'
 
 const DEFAULT_API_URL = typeof window === 'undefined'
@@ -52,6 +53,8 @@ export async function request<T>(
   const token = authenticated ? getToken() : null
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
+  changeLoading(1)
+  try {
   const response = await fetch(`${API_URL}${path}`, { ...options, headers })
   const text = await response.text()
   let payload: unknown
@@ -75,10 +78,11 @@ export async function request<T>(
   }
 
   return payload as T
+  } finally { changeLoading(-1) }
 }
 
 function isRole(role: string): role is Role {
-  return ['admin', 'directeur', 'enseignant', 'comptable', 'secretaire'].includes(role)
+  return ['admin', 'enseignant', 'comptable', 'secretaire', 'eleve'].includes(role)
 }
 
 export function toAppUser(user: ApiUser): AppUser {

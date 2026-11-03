@@ -1,8 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { CalendarDays, DoorOpen, Pencil, Plus, Trash2, UserRound } from 'lucide-react'
+import { BookOpen, DoorOpen, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/app/confirm-dialog'
@@ -10,192 +10,127 @@ import { EntityFormDialog, type FieldConfig } from '@/components/app/entity-form
 import { PageHeader } from '@/components/app/page-header'
 import { SimpleSelect } from '@/components/app/simple-select'
 import { matches, Toolbar } from '@/components/app/toolbar'
-import { useCanEdit } from '@/hooks/use-permission'
-import { useCrudState } from '@/hooks/use-crud-state'
-import { fmtGrade, studentSemesterAverages } from '@/lib/academics'
+import { getApiErrorMessage } from '@/lib/api'
 import { formatMoney } from '@/lib/format'
-import { LEVELS } from '@/lib/seed'
-import { db, useDB } from '@/lib/store'
-import type { SchoolClass } from '@/lib/types'
-import { cn } from '@/lib/utils'
+import { useCurrentUser } from '@/lib/store'
+import {
+  createSchoolClass, deleteSchoolClass, loadClasses, updateSchoolClass,
+  type SchoolClassRecord, type SchoolConfig,
+} from '@/lib/school-api'
+
+type ClassDirectory = SchoolConfig & { classes: SchoolClassRecord[] }
 
 export default function ClassesPage() {
-  const data = useDB()!
-  const editable = useCanEdit('classes')
-  const crud = useCrudState<SchoolClass>()
+  const user = useCurrentUser()
+  const admin = user?.role === 'admin'
+  const [directory, setDirectory] = useState<ClassDirectory | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [search, setSearch] = useState('')
-  const [level, setLevel] = useState('all')
+  const [yearFilter, setYearFilter] = useState('all')
+  const [editing, setEditing] = useState<SchoolClassRecord | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const [deleting, setDeleting] = useState<SchoolClassRecord | null>(null)
 
-  const teacherById = useMemo(() => new Map(data.teachers.map((t) => [t.id, t])), [data.teachers])
-  const enriched = useMemo(
-    () =>
-      data.classes.map((c) => {
-        const students = data.students.filter((s) => s.classId === c.id)
-        const avgs = studentSemesterAverages(data, c.id, 'S1').map((r) => r.general).filter((v): v is number => v !== null)
-        return { klass: c, size: students.length, girls: students.filter((s) => s.gender === 'F').length, avg: avgs.length ? avgs.reduce((a, b) => a + b, 0) / avgs.length : null }
-      }),
-    [data],
+  const refresh = useCallback(async () => {
+    const next = await loadClasses()
+    setDirectory(next)
+    setError('')
+  }, [])
+  useEffect(() => {
+    void refresh().catch((cause: unknown) => setError(getApiErrorMessage(cause))).finally(() => setLoading(false))
+  }, [refresh])
+
+  const years = directory?.years ?? []
+  const levels = directory?.levels ?? []
+  const options = directory?.options ?? []
+  const classes = directory?.classes ?? []
+  const yearById = useMemo(() => new Map(years.map((year) => [year.id_annee, year])), [years])
+  const levelById = useMemo(() => new Map(levels.map((level) => [level.id_niveau, level])), [levels])
+  const optionById = useMemo(() => new Map(options.map((option) => [option.id_option, option])), [options])
+  const rows = classes.filter((klass) =>
+    (yearFilter === 'all' || String(klass.id_annee) === yearFilter) &&
+    matches(search, klass.libelle, klass.salle, levelById.get(klass.id_niveau)?.libelle, optionById.get(klass.id_option ?? -1)?.libelle),
   )
-  const rows = enriched.filter(({ klass }) => (level === 'all' || klass.level === level) && matches(search, klass.name, klass.room, klass.level))
 
   const fields: FieldConfig[] = [
-    {
-      name: 'name',
-      label: 'Nom de la classe',
-      required: true,
-      placeholder: '6ème A',
-      validate: (v) => (data.classes.some((c) => c.name.toLowerCase() === v.toLowerCase() && c.id !== crud.editing?.id) ? 'Une classe porte déjà ce nom.' : undefined),
-    },
-    { name: 'level', label: 'Année / niveau', type: 'select', required: true, options: LEVELS.map((l) => ({ value: l, label: l })) },
-    { name: 'stage', label: 'Cycle', type: 'select', required: true, options: [{ value: 'orientation', label: 'Cycle d’orientation' }, { value: 'option', label: 'Humanités avec option' }] },
-    {
-      name: 'option',
-      label: 'Option (si humanités)',
-      placeholder: 'Scientifique, Pédagogie…',
-      validate: (value, values) => values.stage === 'option' && !value ? 'Précisez l’option de cette classe.' : undefined,
-    },
-    { name: 'room', label: 'Salle', required: true, placeholder: 'Salle 101' },
-    { name: 'annualTuition', label: `Frais annuels par élève (${data.settings.currency})`, type: 'number', required: true, min: 0, step: 1 },
-    {
-      name: 'capacity',
-      label: 'Capacité',
-      type: 'number',
-      required: true,
-      min: 10,
-      max: 80,
-      validate: (v) => {
-        const size = crud.editing ? data.students.filter((s) => s.classId === crud.editing!.id).length : 0
-        return Number(v) < size ? `La classe compte déjà ${size} élèves.` : undefined
-      },
-    },
-    { name: 'headTeacherId', label: 'Professeur principal', type: 'select', required: true, full: true, options: data.teachers.map((t) => ({ value: t.id, label: `${t.firstName} ${t.lastName} — ${t.specialty}` })) },
+    { name: 'id_annee', label: 'Année scolaire', type: 'select', required: true, options: years.filter((year) => editing ? year.id_annee === editing.id_annee : year.etat === 'ouverte').map((year) => ({ value: String(year.id_annee), label: year.libelle })) },
+    { name: 'id_niveau', label: 'Niveau', type: 'select', required: true, resetOnChange: ['id_option'], options: levels.map((level) => ({ value: String(level.id_niveau), label: `${directory?.cycles.find((cycle) => cycle.id_cycle === level.id_cycle)?.libelle ?? 'Cycle'} · ${level.libelle}` })) },
+    { name: 'libelle', label: 'Nom de la classe', required: true, placeholder: '1re A' },
+    { name: 'modele_bulletin', label: 'Modèle du bulletin', type: 'select', required: true, options: [
+      { value: 'examen_etat', label: 'Bulletin congolais avec domaines et examen d’État' },
+      { value: 'standard', label: 'Bulletin congolais classique' },
+    ] },
+    { name: 'id_option', label: 'Option du niveau', type: 'select', visible: (values) => Boolean(levels.find((item) => String(item.id_niveau) === values.id_niveau)?.necessite_option), options: (values) => {
+      const level = levels.find((item) => String(item.id_niveau) === values.id_niveau)
+      const associated = new Set(level?.options?.map((option) => option.id_option) ?? [])
+      return options.filter((option) => (associated.has(option.id_option) && option.actif) || (level?.id_niveau === editing?.id_niveau && option.id_option === editing?.id_option)).map((option) => ({ value: String(option.id_option), label: option.libelle }))
+    }, validate: (value, values) => {
+      const level = levels.find((item) => String(item.id_niveau) === values.id_niveau)
+      if (level?.necessite_option && !value) return 'Ce niveau demande une option.'
+      if (level?.necessite_option && value && !level.options?.some((option) => String(option.id_option) === value) && !(level.id_niveau === editing?.id_niveau && String(editing?.id_option) === value)) return 'Cette option n’est pas associée au niveau.'
+      return undefined
+    } },
+    { name: 'salle', label: 'Salle habituelle', required: true, placeholder: 'Salle 101' },
+    { name: 'montant_frais_annuel', label: 'Frais annuels (USD)', type: 'number', required: true, min: 0, step: 1 },
+    { name: 'capacite', label: 'Capacité', type: 'number', min: 1, step: 1 },
+    { name: 'actif', label: 'Statut', type: 'select', required: true, options: [{ value: 'oui', label: 'Active' }, { value: 'non', label: 'Inactive' }] },
   ]
 
-  const e = crud.editing
+  const startCreate = () => { setEditing(null); setFormOpen(true) }
+  const startEdit = (klass: SchoolClassRecord) => { setEditing(klass); setFormOpen(true) }
 
   return (
     <>
-      <PageHeader
-        eyebrow="Organisation"
-        title="Classes"
-        description="Cycle d’orientation, options des humanités, frais annuels et effectifs."
-        actions={
-          editable && (
-            <Button onClick={crud.openCreate}>
-              <Plus />
-              Nouvelle classe
-            </Button>
-          )
-        }
-      />
-      <Toolbar search={search} onSearch={setSearch} placeholder="Classe, salle…">
-        <SimpleSelect ariaLabel="Filtrer par niveau" value={level} onValueChange={setLevel} options={[{ value: 'all', label: 'Tous les niveaux' }, ...LEVELS.map((l) => ({ value: l, label: l }))]} />
+      <PageHeader eyebrow="Organisation" title={admin ? 'Classes' : 'Mes classes'} description={admin ? 'Définissez les niveaux, options, salles et frais annuels. Les frais sont répartis sur deux semestres.' : 'Consultez uniquement les classes dans lesquelles vous enseignez.'} actions={admin && <Button onClick={startCreate} disabled={loading || Boolean(error)}><Plus />Nouvelle classe</Button>} />
+      {loading && <p role="status" className="text-sm text-muted-foreground">Chargement des classes…</p>}
+      {error && <div role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm text-destructive">{error} <Button variant="outline" onClick={() => { void refresh().catch((cause: unknown) => setError(getApiErrorMessage(cause))) }}>Réessayer</Button></div>}
+      {!loading && !error && years.every((year) => year.etat !== 'ouverte') && admin && <p className="rounded-xl border border-amber-500/40 p-4 text-sm">Ouvrez une année dans <Link className="underline" href="/annees-scolaires">Années, niveaux et options</Link> avant de créer une classe.</p>}
+      <Toolbar search={search} onSearch={setSearch} placeholder="Classe, salle, niveau ou option…">
+        <SimpleSelect ariaLabel="Filtrer par année" value={yearFilter} onValueChange={setYearFilter} options={[{ value: 'all', label: 'Toutes les années' }, ...years.map((year) => ({ value: String(year.id_annee), label: year.libelle }))]} />
       </Toolbar>
-      {rows.length === 0 && <p className="py-16 text-center text-sm text-muted-foreground">Aucune classe ne correspond à votre recherche.</p>}
+      {!loading && !error && rows.length === 0 && <p className="py-12 text-center text-sm text-muted-foreground">Aucune classe enregistrée pour cette recherche.</p>}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {rows.map(({ klass, size, girls, avg }, i) => {
-          const fill = Math.min(100, (size / klass.capacity) * 100)
-          const head = teacherById.get(klass.headTeacherId)
-          return (
-            <article
-              key={klass.id}
-              className="group flex flex-col gap-4 rounded-2xl border bg-card p-5 shadow-sm transition-all duration-300 animate-in fade-in slide-in-from-bottom-3 fill-mode-both hover:-translate-y-0.5 hover:shadow-md"
-              style={{ animationDelay: `${i * 40}ms` }}
-            >
-              <header className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold tracking-wide text-gold uppercase">{klass.level}{klass.option ? ` · ${klass.option}` : ''}</p>
-                  <h2 className="font-serif text-2xl font-semibold">{klass.name}</h2>
-                </div>
-                <div className="text-right">
-                  <p className="font-mono text-lg font-semibold tabular-nums">{fmtGrade(avg)}</p>
-                  <p className="text-[11px] text-muted-foreground">moy. S1</p>
-                </div>
-              </header>
-              <div>
-                <div className="mb-1.5 flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Effectif</span>
-                  <span className="font-medium tabular-nums">
-                    {size} / {klass.capacity}
-                  </span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-muted">
-                  <div className={cn('h-full rounded-full transition-all duration-700', fill >= 95 ? 'bg-destructive' : fill >= 80 ? 'bg-gold' : 'bg-primary dark:bg-chart-1')} style={{ width: `${fill}%` }} />
-                </div>
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  {girls} filles · {size - girls} garçons
-                </p>
-              </div>
-              <dl className="flex flex-col gap-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <UserRound className="size-4 text-muted-foreground" aria-hidden="true" />
-                  <dt className="sr-only">Professeur principal</dt>
-                  <dd className="truncate">{head ? `${head.firstName} ${head.lastName}` : 'Non assigné'}</dd>
-                </div>
-                <div className="flex items-center gap-2">
-                  <DoorOpen className="size-4 text-muted-foreground" aria-hidden="true" />
-                  <dt className="sr-only">Salle</dt>
-                  <dd>{klass.room}</dd>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="size-4 text-center text-xs font-bold text-muted-foreground" aria-hidden="true">$</span>
-                  <dt className="sr-only">Frais annuels</dt>
-                  <dd>{formatMoney(klass.annualTuition ?? data.settings.tuitionByLevel[klass.level] ?? 0, data.settings.currency)} / an</dd>
-                </div>
-              </dl>
-              <footer className="mt-auto flex items-center gap-2 border-t pt-4">
-                <Button nativeButton={false} variant="outline" size="sm" className="flex-1" render={<Link href={`/emplois-du-temps?classe=${klass.id}`} />}>
-                  <CalendarDays />
-                  Emploi du temps
-                </Button>
-                {editable && (
-                  <>
-                    <Button variant="ghost" size="icon-sm" onClick={() => crud.openEdit(klass)} aria-label={`Modifier ${klass.name}`}>
-                      <Pencil />
-                    </Button>
-                    <Button variant="ghost" size="icon-sm" className="text-destructive hover:text-destructive" onClick={() => crud.setDeleting(klass)} aria-label={`Supprimer ${klass.name}`}>
-                      <Trash2 />
-                    </Button>
-                  </>
-                )}
-              </footer>
-            </article>
-          )
+        {rows.map((klass) => {
+          const level = levelById.get(klass.id_niveau)
+          const option = optionById.get(klass.id_option ?? -1)
+          const annual = admin ? Number(klass.montant_frais_annuel) : 0
+          const s1 = admin ? klass.frais_scolaires?.find((fee) => fee.semestre?.ordre === 1)?.montant_du ?? Math.floor(annual / 2) : 0
+          const s2 = admin ? klass.frais_scolaires?.find((fee) => fee.semestre?.ordre === 2)?.montant_du ?? annual - Math.floor(annual / 2) : 0
+          return <article key={klass.id_classe} className="rounded-2xl border bg-card p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-3"><div><p className="text-xs uppercase text-muted-foreground">{yearById.get(klass.id_annee)?.libelle ?? 'Année inconnue'} · {level?.libelle ?? 'Niveau inconnu'}</p><h2 className="mt-1 font-serif text-2xl font-semibold">{klass.libelle}</h2>{option && <p className="text-sm text-gold">{option.libelle}</p>}</div><span className="rounded-full bg-muted px-2 py-1 text-xs">{klass.actif ? 'Active' : 'Inactive'}</span></div>
+            <dl className="mt-5 space-y-2 text-sm"><div className="flex items-center gap-2"><DoorOpen className="size-4 text-muted-foreground" /><dt>Salle</dt><dd className="ml-auto font-medium">{klass.salle || 'À préciser'}</dd></div><div className="flex items-center gap-2"><Users className="size-4 text-muted-foreground" /><dt>Élèves inscrits</dt><dd className="ml-auto font-medium">{klass.inscriptions_count ?? 0}{klass.capacite ? ` / ${klass.capacite}` : ''}</dd></div>{admin && <div className="flex items-center gap-2"><BookOpen className="size-4 text-muted-foreground" /><dt>Frais annuels</dt><dd className="ml-auto font-medium">{formatMoney(annual, 'USD')}</dd></div>}</dl>
+            {admin && <p className="mt-3 rounded-lg bg-muted/60 p-2 text-xs text-muted-foreground">S1 : {formatMoney(Number(s1), 'USD')} · S2 : {formatMoney(Number(s2), 'USD')}</p>}
+            {admin && <div className="mt-4 flex justify-end gap-2 border-t pt-3"><Button variant="outline" size="sm" onClick={() => startEdit(klass)}><Pencil />Modifier</Button><Button variant="ghost" size="icon-sm" aria-label={`Supprimer ${klass.libelle}`} onClick={() => setDeleting(klass)}><Trash2 /></Button></div>}
+          </article>
         })}
       </div>
-      <EntityFormDialog
-        open={crud.formOpen}
-        onOpenChange={crud.setFormOpen}
-        title={e ? `Modifier ${e.name}` : 'Nouvelle classe'}
-        fields={fields}
-        initial={{ name: e?.name ?? '', level: e?.level ?? '', stage: e?.stage ?? 'orientation', option: e?.option ?? '', room: e?.room ?? '', annualTuition: String(e?.annualTuition ?? data.settings.tuitionByLevel[e?.level ?? ''] ?? 0), capacity: e ? String(e.capacity) : '40', headTeacherId: e?.headTeacherId ?? '' }}
-        onSubmit={(v) => {
-          const payload = { ...v, capacity: Number(v.capacity), annualTuition: Number(v.annualTuition), stage: v.stage as SchoolClass['stage'] }
-          if (e) {
-            db.update('classes', e.id, payload)
-            toast.success('Classe mise à jour.')
-          } else {
-            db.add('classes', payload as Omit<SchoolClass, 'id'>)
-            toast.success(`Classe ${v.name} créée.`)
-          }
-        }}
-      />
-      <ConfirmDialog
-        open={Boolean(crud.deleting)}
-        onOpenChange={(o) => !o && crud.setDeleting(null)}
-        description={`Supprimer la classe ${crud.deleting?.name} et son emploi du temps ?`}
-        onConfirm={() => {
-          const id = crud.deleting!.id
-          if (data.students.some((s) => s.classId === id)) {
-            toast.error('Impossible : des élèves sont encore affectés à cette classe.')
-          } else {
-            db.remove('classes', id)
-            db.replaceWhere('timetable', (t) => t.classId === id, [])
-            toast.success('Classe supprimée.')
-          }
-          crud.setDeleting(null)
-        }}
-      />
+      <EntityFormDialog open={formOpen} onOpenChange={setFormOpen} title={editing ? `Modifier ${editing.libelle}` : 'Nouvelle classe'} description="Le montant annuel sera réparti en deux échéances semestrielles." fields={fields} initial={{
+        id_annee: String(editing?.id_annee ?? years.find((year) => year.etat === 'ouverte')?.id_annee ?? ''),
+        id_niveau: String(editing?.id_niveau ?? ''), id_option: String(editing?.id_option ?? ''),
+        libelle: editing?.libelle ?? '', modele_bulletin: editing?.modele_bulletin ?? 'examen_etat', salle: editing?.salle ?? '',
+        montant_frais_annuel: String(editing?.montant_frais_annuel ?? 0),
+        capacite: String(editing?.capacite ?? ''), actif: editing?.actif === false ? 'non' : 'oui',
+      }} onSubmit={async (values) => {
+        const payload = {
+          id_annee: Number(values.id_annee), id_niveau: Number(values.id_niveau),
+          id_option: levels.find((item) => String(item.id_niveau) === values.id_niveau)?.necessite_option && values.id_option ? Number(values.id_option) : null,
+          libelle: values.libelle, modele_bulletin: values.modele_bulletin === 'standard' ? 'standard' as const : 'examen_etat' as const, salle: values.salle,
+          montant_frais_annuel: Number(values.montant_frais_annuel),
+          capacite: values.capacite ? Number(values.capacite) : null,
+          actif: values.actif === 'oui',
+        }
+        if (editing) await updateSchoolClass(editing.id_classe, payload)
+        else await createSchoolClass(payload)
+        await refresh()
+        toast.success(editing ? 'Classe mise à jour.' : 'Classe créée avec ses frais semestriels.')
+      }} />
+      <ConfirmDialog open={Boolean(deleting)} onOpenChange={(open) => { if (!open) setDeleting(null) }} description={`Supprimer la classe ${deleting?.libelle ?? ''} ? Une classe avec des inscriptions ou des cours affectés ne peut pas être supprimée.`} onConfirm={() => {
+        if (!deleting) return
+        const id = deleting.id_classe
+        setDeleting(null)
+        void deleteSchoolClass(id).then(refresh).then(() => toast.success('Classe supprimée.')).catch((cause: unknown) => toast.error(getApiErrorMessage(cause)))
+      }} />
     </>
   )
 }

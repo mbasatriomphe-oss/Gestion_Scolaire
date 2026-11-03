@@ -1,252 +1,138 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight, CalendarCheck, GraduationCap, TrendingUp, Users, Wallet } from 'lucide-react'
+import { ArrowRight, BookOpen, GraduationCap, School, Users, Wallet } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Progress } from '@/components/ui/progress'
 import { Panel } from '@/components/app/panel'
-import { PersonCell } from '@/components/app/person-cell'
 import { StatCard } from '@/components/app/stat-card'
-import { StatusBadge } from '@/components/app/status-badge'
-import { AttendanceChart, DonutChart, FinanceChart, LevelChart } from '@/components/dashboard/charts'
-import { fmtGrade, studentSemesterAverages } from '@/lib/academics'
-import { formatCompactMoney, formatDate, formatMoney, timeAgo } from '@/lib/format'
+import { FinanceChart } from '@/components/dashboard/charts'
+import { getApiErrorMessage } from '@/lib/api'
+import { getFinanceSummary, getSchoolSummary, type FinanceSummary, type SchoolSummary } from '@/lib/dashboard-api'
+import { formatMoney } from '@/lib/format'
 import { ROLE_LABELS } from '@/lib/permissions'
-import { LEVELS } from '@/lib/seed'
-import { useCurrentUser, useDB } from '@/lib/store'
-
-const MONTHS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
+import { useCurrentUser } from '@/lib/store'
 
 export default function DashboardPage() {
-  const data = useDB()!
-  const user = useCurrentUser()!
+  const user = useCurrentUser()
+  const [summary, setSummary] = useState<SchoolSummary | null>(null)
+  const [finance, setFinance] = useState<FinanceSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [reload, setReload] = useState(0)
 
-  const stats = useMemo(() => {
-    const classById = new Map(data.classes.map((c) => [c.id, c]))
-    const activeStudents = data.students.filter((s) => s.status === 'actif')
-    const paid = data.payments.filter((p) => p.status === 'payé')
-    const revenue = paid.reduce((a, p) => a + p.amount, 0)
-    const expenses = data.expenses.reduce((a, e) => a + e.amount, 0)
-    const expectedTuition = activeStudents.reduce((a, s) => a + ((classById.get(s.classId)?.annualTuition ?? data.settings.tuitionByLevel[classById.get(s.classId)?.level ?? ''] ?? 0)), 0)
-    const tuitionPaid = paid.filter((p) => p.category === 'Scolarité').reduce((a, p) => a + p.amount, 0)
-    const recoveryRate = expectedTuition ? Math.min(100, (tuitionPaid / expectedTuition) * 100) : 0
-
-    const byDate = new Map<string, { present: number; total: number }>()
-    for (const a of data.attendance) {
-      const entry = byDate.get(a.date) ?? { present: 0, total: 0 }
-      entry.total++
-      if (a.status === 'présent' || a.status === 'retard') entry.present++
-      byDate.set(a.date, entry)
-    }
-    const attendanceSeries = [...byDate.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-10)
-      .map(([date, v]) => ({ day: formatDate(date, { day: '2-digit', month: 'short' }), taux: Number(((v.present / v.total) * 100).toFixed(1)) }))
-    const lastRate = attendanceSeries.at(-1)?.taux ?? 0
-    const prevRate = attendanceSeries.at(-2)?.taux ?? lastRate
-
-    const now = new Date()
-    const finance = Array.from({ length: 6 }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1)
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      return {
-        month: MONTHS[d.getMonth()],
-        recettes: paid.filter((p) => p.date.startsWith(key)).reduce((a, p) => a + p.amount, 0),
-        depenses: data.expenses.filter((e) => e.date.startsWith(key)).reduce((a, e) => a + e.amount, 0),
-      }
-    })
-    const lastMonth = finance.at(-1)!.recettes
-    const prevMonth = finance.at(-2)!.recettes || 1
-
-    const levels = LEVELS.map((level) => {
-      const st = activeStudents.filter((s) => classById.get(s.classId)?.level === level)
-      return { level, garcons: st.filter((s) => s.gender === 'M').length, filles: st.filter((s) => s.gender === 'F').length }
-    })
-
-    const methods = ['Mobile Money', 'Espèces', 'Virement', 'Chèque'] as const
-    const methodData = methods.map((m, i) => ({ name: m, value: paid.filter((p) => p.method === m).reduce((a, p) => a + p.amount, 0), fill: `var(--chart-${i + 1})` }))
-
-    const classAverages = data.classes
-      .map((c) => {
-        const rows = studentSemesterAverages(data, c.id, 'S1').map((r) => r.general).filter((v): v is number => v !== null)
-        return { klass: c, avg: rows.length ? rows.reduce((a, b) => a + b, 0) / rows.length : null, size: data.students.filter((s) => s.classId === c.id).length }
+  useEffect(() => {
+    let active = true
+    const canSeeFinance = user?.role === 'admin' || user?.role === 'comptable'
+    setLoading(true)
+    setError('')
+    Promise.all([getSchoolSummary(), canSeeFinance ? getFinanceSummary() : Promise.resolve(null)])
+      .then(([school, finances]) => {
+        if (!active) return
+        setSummary(school)
+        setFinance(finances)
       })
-      .filter((c) => c.avg !== null)
-      .sort((a, b) => b.avg! - a.avg!)
+      .catch((reason: unknown) => {
+        if (active) setError(getApiErrorMessage(reason))
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => { active = false }
+  }, [user?.role, reload])
 
-    return {
-      activeStudents: activeStudents.length,
-      girls: activeStudents.filter((s) => s.gender === 'F').length,
-      teachers: data.teachers.filter((t) => t.status === 'actif').length,
-      revenue,
-      expenses,
-      recoveryRate,
-      tuitionPaid,
-      expectedTuition,
-      attendanceSeries,
-      lastRate,
-      rateTrend: Number((lastRate - prevRate).toFixed(1)),
-      finance,
-      revenueTrend: Number((((lastMonth - prevMonth) / prevMonth) * 100).toFixed(1)),
-      levels,
-      methodData,
-      classAverages,
-      recentPayments: [...data.payments].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6),
-      pendingEnrollments: data.enrollments.filter((e) => e.status === 'en attente').length,
-    }
-  }, [data])
-
-  const studentById = new Map(data.students.map((s) => [s.id, s]))
-  const firstName = user.name.split(' ')[0]
+  const financeSeries = finance?.mensuel.map((item) => ({
+    month: new Intl.DateTimeFormat('fr-FR', { month: 'short' }).format(new Date(`${item.mois}-01T12:00:00`)),
+    recettes: item.encaisse,
+    depenses: item.depenses,
+  })) ?? []
   const hour = new Date().getHours()
+  const firstName = user?.name.split(' ')[0] ?? ''
 
   return (
     <>
       <div className="relative overflow-hidden rounded-3xl bg-primary px-6 py-7 text-primary-foreground shadow-lg sm:px-8 dark:bg-sidebar">
         <div aria-hidden="true" className="absolute -top-24 -right-16 size-72 rounded-full bg-gold/20 blur-3xl" />
-        <div aria-hidden="true" className="absolute -bottom-32 left-1/3 size-72 rounded-full bg-chart-1/30 blur-3xl" />
         <div className="relative flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-xs font-semibold tracking-[0.2em] text-gold uppercase">{ROLE_LABELS[user.role]} · {data.settings.schoolYear}</p>
-            <h1 className="mt-2 font-serif text-3xl font-semibold text-balance sm:text-4xl">
+            <p className="text-xs font-semibold tracking-[0.2em] text-gold uppercase">
+              {user ? ROLE_LABELS[user.role] : 'Scolaris'} · {summary?.annee?.libelle ?? 'Aucune année scolaire'}
+            </p>
+            <h1 className="mt-2 font-serif text-3xl font-semibold sm:text-4xl">
               {hour < 18 ? 'Bonjour' : 'Bonsoir'}, {firstName}
             </h1>
-            <p className="mt-2 max-w-xl text-sm text-primary-foreground/70">
-              Voici l&apos;essentiel de {data.settings.schoolName} aujourd&apos;hui. {stats.pendingEnrollments} inscription(s) attendent une validation.
-            </p>
+            <p className="mt-2 text-sm text-primary-foreground/70">{user?.role === 'enseignant' ? 'Retrouvez vos classes, vos cours et les élèves qui vous sont affectés.' : 'Les chiffres affichés proviennent des dossiers enregistrés dans la base de l’établissement.'}</p>
           </div>
-          <div className="flex gap-2">
-            <Button nativeButton={false} variant="secondary" render={<Link href="/rapports" />}>
-              Voir les rapports
-              <ArrowRight />
+          {user?.role === 'admin' && (
+            <Button nativeButton={false} variant="secondary" render={<Link href="/annees-scolaires" />}>
+              Gérer l’année scolaire <ArrowRight />
             </Button>
-          </div>
+          )}
+          {user?.role === 'enseignant' && (
+            <Button nativeButton={false} variant="secondary" render={<Link href="/notes" />}>
+              Saisir les cotes <ArrowRight />
+            </Button>
+          )}
+          {user?.role === 'comptable' && (
+            <Button nativeButton={false} variant="secondary" render={<Link href="/frais" />}>
+              Enregistrer un paiement <ArrowRight />
+            </Button>
+          )}
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Élèves actifs" value={stats.activeStudents.toLocaleString('fr-FR')} icon={GraduationCap} hint={`${stats.girls} filles · ${stats.activeStudents - stats.girls} garçons`} tone="navy" />
-        <StatCard label="Enseignants" value={String(stats.teachers)} icon={Users} hint={`${data.classes.length} classes · ${data.courses.length} matières`} tone="gold" delay={80} />
-        <StatCard label="Recettes encaissées" value={formatCompactMoney(stats.revenue, data.settings.currency)} icon={Wallet} trend={stats.revenueTrend} hint="vs mois précédent" tone="success" delay={160} />
-        <StatCard label="Taux de présence" value={`${stats.lastRate.toFixed(1)} %`} icon={CalendarCheck} trend={stats.rateTrend} hint="dernier jour pointé" tone="danger" delay={240} />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-3">
-        <Panel title="Recettes & dépenses" description={`Six derniers mois · ${data.settings.currency}`} className="xl:col-span-2" delay={100}>
-          <FinanceChart data={stats.finance} currency={data.settings.currency} />
-        </Panel>
-        <Panel title="Recouvrement scolarité" description="Montant perçu sur le total attendu" delay={150}>
-          <DonutChart
-            data={[
-              { name: 'Perçu', value: stats.tuitionPaid, fill: 'var(--chart-2)' },
-              { name: 'Reste à percevoir', value: Math.max(0, stats.expectedTuition - stats.tuitionPaid), fill: 'var(--muted)' },
-            ]}
-            config={{ Perçu: { label: 'Perçu' }, 'Reste à percevoir': { label: 'Reste à percevoir' } }}
-            centerValue={`${stats.recoveryRate.toFixed(0)} %`}
-            centerLabel="recouvré"
-          />
-          <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-            <div className="rounded-xl bg-muted/60 p-3">
-              <dt className="text-xs text-muted-foreground">Perçu</dt>
-              <dd className="mt-0.5 font-semibold tabular-nums">{formatCompactMoney(stats.tuitionPaid, data.settings.currency)}</dd>
-            </div>
-            <div className="rounded-xl bg-muted/60 p-3">
-              <dt className="text-xs text-muted-foreground">Attendu</dt>
-              <dd className="mt-0.5 font-semibold tabular-nums">{formatCompactMoney(stats.expectedTuition, data.settings.currency)}</dd>
-            </div>
-          </dl>
-        </Panel>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-        <Panel title="Effectifs par niveau" description="Répartition garçons / filles" delay={100}>
-          <LevelChart data={stats.levels} />
-        </Panel>
-        <Panel title="Assiduité" description="Taux de présence des 10 derniers jours" delay={150}>
-          <AttendanceChart data={stats.attendanceSeries} />
-        </Panel>
-        <Panel title="Résultats par classe" description="Moyenne générale · 1er semestre" className="lg:col-span-2 xl:col-span-1" delay={200} action={<TrendingUp className="size-4 text-gold" />}>
-          <ul className="flex flex-col gap-3">
-            {stats.classAverages.slice(0, 6).map((c, i) => (
-              <li key={c.klass.id} className="flex items-center gap-3">
-                <span className={`flex size-7 items-center justify-center rounded-lg text-xs font-bold ${i === 0 ? 'bg-gold text-gold-foreground' : 'bg-muted text-muted-foreground'}`}>{i + 1}</span>
-                <div className="flex flex-1 flex-col gap-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium">{c.klass.name}</span>
-                    <span className="font-mono text-xs tabular-nums">{fmtGrade(c.avg)} / 20</span>
-                  </div>
-                  <Progress value={(c.avg! / 20) * 100} className="h-1.5" />
-                </div>
-              </li>
-            ))}
-          </ul>
-        </Panel>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-3">
-        <Panel
-          title="Derniers paiements"
-          description="Transactions les plus récentes"
-          className="xl:col-span-2"
-          delay={100}
-          action={
-            <Button nativeButton={false} variant="ghost" size="sm" render={<Link href="/frais" />}>
-              Tout voir <ArrowRight />
-            </Button>
-          }
-        >
-          <ul className="divide-y">
-            {stats.recentPayments.map((p) => {
-              const s = studentById.get(p.studentId)
-              return (
-                <li key={p.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-                  <div className="min-w-0 flex-1">
-                    <PersonCell name={s ? `${s.firstName} ${s.lastName}` : 'Élève supprimé'} sub={`${p.category} · ${p.method} · ${formatDate(p.date)}`} />
-                  </div>
-                  <StatusBadge status={p.status} className="hidden sm:inline-flex" />
-                  <span className="w-28 text-right text-sm font-semibold tabular-nums">{formatMoney(p.amount, data.settings.currency)}</span>
-                </li>
-              )
-            })}
-          </ul>
-        </Panel>
-        <div className="flex flex-col gap-4">
-          <Panel title="Moyens de paiement" description="Volume encaissé" delay={150}>
-            <ul className="flex flex-col gap-3">
-              {stats.methodData.map((m) => (
-                <li key={m.name} className="flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="flex items-center gap-2">
-                      <span className="size-2.5 rounded-full" style={{ background: m.fill }} />
-                      {m.name}
-                    </span>
-                    <span className="font-medium tabular-nums">{formatCompactMoney(m.value, data.settings.currency)}</span>
-                  </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full rounded-full transition-all duration-700" style={{ width: `${stats.revenue ? (m.value / stats.revenue) * 100 : 0}%`, background: m.fill }} />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </Panel>
-          <Panel title="Activité récente" description="Dernières notifications enregistrées" delay={200}>
-            <ul className="flex flex-col gap-3">
-              {data.notifications.slice(0, 4).map((n) => (
-                <li key={n.id} className="flex gap-3 animate-in fade-in slide-in-from-right-2">
-                  <span className="relative mt-1.5 flex size-2 shrink-0">
-                    <span className={`relative size-2 rounded-full ${n.read ? 'bg-muted-foreground/40' : 'bg-gold'}`} />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{n.title}</p>
-                    <p className="text-xs text-muted-foreground">{timeAgo(n.createdAt)}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </Panel>
+      {loading && <p role="status" className="text-sm text-muted-foreground">Chargement des chiffres de l’établissement…</p>}
+      {error && (
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-destructive/40 p-4 text-sm text-destructive">
+          <span>{error}</span>
+          <Button variant="outline" onClick={() => setReload((value) => value + 1)}>Réessayer</Button>
         </div>
-      </div>
+      )}
+
+      {summary && !error && (
+        <>
+          {user?.role === 'enseignant' && <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard label="Mes élèves inscrits" value={String(summary.eleves_inscrits)} icon={GraduationCap} tone="navy" />
+            <StatCard label="Mes classes" value={String(summary.classes_actives)} icon={School} tone="gold" delay={80} />
+            <StatCard label="Mes cours" value={String(summary.cours_actifs)} icon={BookOpen} delay={160} />
+            <StatCard label="Mes affectations" value={String(summary.mes_affectations ?? 0)} icon={BookOpen} tone="success" delay={240} />
+          </div>}
+          {user?.role === 'admin' && <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard label="Élèves actifs" value={String(summary.eleves_actifs)} icon={GraduationCap} hint={`${summary.eleves_inscrits} inscrits dans l’année`} tone="navy" />
+            <StatCard label="Enseignants actifs" value={String(summary.enseignants_actifs)} icon={Users} tone="gold" delay={80} />
+            <StatCard label="Classes actives" value={String(summary.classes_actives)} icon={School} delay={160} />
+            <StatCard label="Cours actifs" value={String(summary.cours_actifs)} icon={BookOpen} tone="success" delay={240} />
+          </div>}
+
+          {finance && (
+            <>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <StatCard label="Frais encaissés" value={formatMoney(finance.total_encaisse, 'USD')} icon={Wallet} tone="success" />
+                <StatCard label="Dépenses" value={formatMoney(finance.total_depenses, 'USD')} icon={Wallet} tone="danger" delay={80} />
+                <StatCard label="Solde" value={formatMoney(finance.solde, 'USD')} icon={Wallet} tone={finance.solde >= 0 ? 'success' : 'danger'} delay={160} />
+              </div>
+              <div className="grid gap-4 xl:grid-cols-3">
+                <Panel title="Recettes et dépenses" description="Année scolaire · USD" className="xl:col-span-2">
+                  <FinanceChart data={financeSeries} currency="USD" />
+                </Panel>
+                <Panel title="Frais scolaires" description="Suivi par semestre">
+                  <div className="space-y-4 text-sm">
+                    {finance.semestres.map((semester) => (
+                      <div key={semester.id_semestre} className="rounded-xl border p-3">
+                        <p className="font-semibold">{semester.libelle}</p>
+                        <p className="mt-1 text-muted-foreground">Encaissé : {formatMoney(semester.encaisse, 'USD')}</p>
+                        <p className="text-muted-foreground">Reste : {formatMoney(semester.reste_du, 'USD')}</p>
+                      </div>
+                    ))}
+                    {finance.semestres.length === 0 && <p className="text-muted-foreground">Aucun frais défini pour l’année scolaire.</p>}
+                    <Button nativeButton={false} variant="outline" render={<Link href="/rapports" />}>Voir le rapport <ArrowRight /></Button>
+                  </div>
+                </Panel>
+              </div>
+            </>
+          )}
+        </>
+      )}
     </>
   )
 }

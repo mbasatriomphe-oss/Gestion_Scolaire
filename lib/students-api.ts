@@ -98,7 +98,7 @@ export async function loadStudentDirectory(): Promise<StudentDirectory> {
 export function updateStudent(id: string, payload: StudentPayload) {
   return request<ApiStudent>(`/eleves/${encodeURIComponent(id)}`, {
     method: 'PUT',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(Object.fromEntries(Object.entries(payload).filter(([key]) => !['id_classe', 'id_annee', 'date_inscription'].includes(key)))),
   })
 }
 

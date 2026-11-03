@@ -1,142 +1,84 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { BookOpen, Clock, Plus, Scale } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { BookOpen, Plus, Scale } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/app/confirm-dialog'
 import { DataTable, type Column } from '@/components/app/data-table'
 import { EntityFormDialog, type FieldConfig } from '@/components/app/entity-form-dialog'
 import { PageHeader } from '@/components/app/page-header'
-import { PersonCell } from '@/components/app/person-cell'
 import { RowActions } from '@/components/app/row-actions'
 import { SimpleSelect } from '@/components/app/simple-select'
 import { StatCard } from '@/components/app/stat-card'
 import { matches, Toolbar } from '@/components/app/toolbar'
-import { useCanEdit } from '@/hooks/use-permission'
-import { useCrudState } from '@/hooks/use-crud-state'
-import { db, useDB } from '@/lib/store'
-import type { Course } from '@/lib/types'
+import { getApiErrorMessage } from '@/lib/api'
+import { useCurrentUser } from '@/lib/store'
+import {
+  createSchoolCourse, deleteSchoolCourse, loadCourses, updateSchoolCourse,
+  type SchoolCourse, type SchoolCycle,
+} from '@/lib/school-api'
 
 export default function CoursesPage() {
-  const data = useDB()!
-  const editable = useCanEdit('cours')
-  const crud = useCrudState<Course>()
+  const admin = useCurrentUser()?.role === 'admin'
+  const [courses, setCourses] = useState<SchoolCourse[]>([])
+  const [cycles, setCycles] = useState<SchoolCycle[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [search, setSearch] = useState('')
-  const [teacher, setTeacher] = useState('all')
+  const [cycleFilter, setCycleFilter] = useState('all')
+  const [editing, setEditing] = useState<SchoolCourse | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const [deleting, setDeleting] = useState<SchoolCourse | null>(null)
 
-  const teacherById = useMemo(() => new Map(data.teachers.map((t) => [t.id, t])), [data.teachers])
-  const slots = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const t of data.timetable) m.set(t.courseId, (m.get(t.courseId) ?? 0) + 1)
-    return m
-  }, [data.timetable])
+  const refresh = useCallback(async () => {
+    const next = await loadCourses()
+    setCourses(next.courses)
+    setCycles(next.cycles)
+    setError('')
+  }, [])
+  useEffect(() => { void refresh().catch((cause: unknown) => setError(getApiErrorMessage(cause))).finally(() => setLoading(false)) }, [refresh])
 
-  const rows = data.courses.filter((c) => {
-    const t = teacherById.get(c.teacherId)
-    return (teacher === 'all' || c.teacherId === teacher) && matches(search, c.name, c.code, t?.firstName, t?.lastName)
-  })
-
-  const columns: Column<Course>[] = [
-    {
-      key: 'name',
-      header: 'Matière',
-      sortValue: (c) => c.name,
-      cell: (c) => (
-        <div className="flex items-center gap-3">
-          <span className="size-9 shrink-0 rounded-xl" style={{ background: `color-mix(in oklch, ${c.color} 22%, transparent)`, boxShadow: `inset 0 0 0 2px ${c.color}` }} aria-hidden="true" />
-          <div className="flex flex-col">
-            <span className="font-medium">{c.name}</span>
-            <span className="font-mono text-xs text-muted-foreground">{c.code}</span>
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: 'teacher',
-      header: 'Enseignant',
-      sortValue: (c) => teacherById.get(c.teacherId)?.lastName ?? '',
-      cell: (c) => {
-        const t = teacherById.get(c.teacherId)
-        return t ? <PersonCell name={`${t.firstName} ${t.lastName}`} sub={t.specialty} /> : <span className="text-muted-foreground">Non assigné</span>
-      },
-    },
-    { key: 'coef', header: 'Coef.', sortValue: (c) => c.coefficient, className: 'tabular-nums font-semibold', cell: (c) => c.coefficient },
-    { key: 'hours', header: 'Heures / sem.', sortValue: (c) => c.hoursPerWeek, headClassName: 'hidden sm:table-cell', className: 'hidden sm:table-cell tabular-nums', cell: (c) => `${c.hoursPerWeek} h` },
-    { key: 'slots', header: 'Créneaux planifiés', headClassName: 'hidden lg:table-cell', className: 'hidden lg:table-cell tabular-nums text-muted-foreground', sortValue: (c) => slots.get(c.id) ?? 0, cell: (c) => slots.get(c.id) ?? 0 },
-    { key: 'actions', header: '', className: 'w-12', cell: (c) => <RowActions onEdit={editable ? () => crud.openEdit(c) : undefined} onDelete={editable ? () => crud.setDeleting(c) : undefined} /> },
-  ]
-
+  const cycleById = useMemo(() => new Map(cycles.map((cycle) => [cycle.id_cycle, cycle])), [cycles])
+  const rows = courses.filter((course) => (cycleFilter === 'all' || (course.cycles ?? [{id_cycle: course.id_cycle}]).some(c => String(c.id_cycle) === cycleFilter)) && matches(search, course.intitule, course.code, cycleById.get(course.id_cycle)?.libelle))
   const fields: FieldConfig[] = [
-    { name: 'name', label: 'Intitulé', required: true, placeholder: 'Mathématiques' },
-    {
-      name: 'code',
-      label: 'Code',
-      required: true,
-      placeholder: 'MATH',
-      validate: (v) => (!/^[A-Z0-9-]{2,8}$/.test(v.toUpperCase()) ? '2 à 8 caractères alphanumériques.' : data.courses.some((c) => c.code.toUpperCase() === v.toUpperCase() && c.id !== crud.editing?.id) ? 'Code déjà utilisé.' : undefined),
-    },
-    { name: 'coefficient', label: 'Coefficient', type: 'number', required: true, min: 1, max: 8 },
-    { name: 'hoursPerWeek', label: 'Heures par semaine', type: 'number', required: true, min: 1, max: 10 },
-    { name: 'teacherId', label: 'Enseignant', type: 'select', required: true, options: data.teachers.map((t) => ({ value: t.id, label: `${t.firstName} ${t.lastName}` })) },
-    { name: 'color', label: 'Couleur', type: 'color', required: true },
+    { name: 'intitule', label: 'Intitulé du cours', required: true, placeholder: 'Mathématiques' },
+    { name: 'code', label: 'Code', required: true, placeholder: 'MATH', validate: (value) => /^[A-Za-z0-9-]{2,20}$/.test(value) ? undefined : 'Utilisez 2 à 20 lettres, chiffres ou tirets.' },
+    { name: 'cycle_ids', label: 'Cycles', type: 'multiselect', required: true, options: cycles.map((cycle) => ({ value: String(cycle.id_cycle), label: cycle.libelle })) },
+    { name: 'coefficient', label: 'Coefficient', type: 'number', min: 1, max: 20, required: true },
+    { name: 'domaine_bulletin', label: 'Domaine du bulletin', placeholder: 'DOMAINE DES SCIENCES' },
+    { name: 'sous_domaine_bulletin', label: 'Sous-domaine du bulletin', placeholder: 'Sous-domaine des Mathématiques' },
+    { name: 'actif', label: 'Statut', type: 'select', required: true, options: [{ value: 'oui', label: 'Actif' }, { value: 'non', label: 'Inactif' }] },
+  ]
+  const columns: Column<SchoolCourse>[] = [
+    { key: 'name', header: 'Cours', sortValue: (course) => course.intitule, cell: (course) => <span className="font-medium">{course.intitule}</span> },
+    { key: 'code', header: 'Code', sortValue: (course) => course.code, cell: (course) => <span className="font-mono text-xs">{course.code}</span> },
+    { key: 'cycle', header: 'Cycle', sortValue: (course) => cycleById.get(course.id_cycle)?.libelle ?? '', cell: (course) => (course.cycles ?? [cycleById.get(course.id_cycle)]).map(c => c?.libelle).filter(Boolean).join(', ') },
+    { key: 'coefficient', header: 'Coefficient', sortValue: (course) => course.coefficient, cell: (course) => course.coefficient },
+    { key: 'domaine', header: 'Domaine du bulletin', sortValue: (course) => course.domaine_bulletin ?? '', cell: (course) => course.domaine_bulletin ?? '—' },
+    { key: 'status', header: 'Statut', cell: (course) => course.actif ? 'Actif' : 'Inactif' },
+    ...(admin ? [{ key: 'actions', header: '', className: 'w-12', cell: (course: SchoolCourse) => <RowActions onEdit={() => { setEditing(course); setFormOpen(true) }} onDelete={() => setDeleting(course)} /> } satisfies Column<SchoolCourse>] : []),
   ]
 
-  const e = crud.editing
-  return (
-    <>
-      <PageHeader
-        eyebrow="Pédagogie"
-        title="Cours & matières"
-        description="Matières enseignées, coefficients, volumes horaires et responsables."
-        actions={
-          editable && (
-            <Button onClick={crud.openCreate}>
-              <Plus />
-              Nouvelle matière
-            </Button>
-          )
-        }
-      />
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Matières" value={String(data.courses.length)} icon={BookOpen} />
-        <StatCard label="Volume horaire hebdo." value={`${data.courses.reduce((a, c) => a + c.hoursPerWeek, 0)} h`} icon={Clock} tone="gold" delay={60} />
-        <StatCard label="Total coefficients" value={String(data.courses.reduce((a, c) => a + c.coefficient, 0))} icon={Scale} tone="success" delay={120} />
-      </div>
-      <Toolbar search={search} onSearch={setSearch} placeholder="Matière, code, enseignant…">
-        <SimpleSelect ariaLabel="Filtrer par enseignant" value={teacher} onValueChange={setTeacher} options={[{ value: 'all', label: 'Tous les enseignants' }, ...data.teachers.map((t) => ({ value: t.id, label: `${t.firstName} ${t.lastName}` }))]} />
-      </Toolbar>
-      <DataTable rows={rows} columns={columns} getRowId={(c) => c.id} />
-      <EntityFormDialog
-        open={crud.formOpen}
-        onOpenChange={crud.setFormOpen}
-        title={e ? `Modifier ${e.name}` : 'Nouvelle matière'}
-        fields={fields}
-        initial={{ name: e?.name ?? '', code: e?.code ?? '', coefficient: e ? String(e.coefficient) : '2', hoursPerWeek: e ? String(e.hoursPerWeek) : '3', teacherId: e?.teacherId ?? '', color: e?.color?.startsWith('#') ? e.color : '#1e3a8a' }}
-        onSubmit={(v) => {
-          const payload = { ...v, code: v.code.toUpperCase(), coefficient: Number(v.coefficient), hoursPerWeek: Number(v.hoursPerWeek) }
-          if (e) {
-            db.update('courses', e.id, payload)
-            toast.success('Matière mise à jour.')
-          } else {
-            db.add('courses', payload as Omit<Course, 'id'>)
-            toast.success(`Matière ${v.name} ajoutée.`)
-          }
-        }}
-      />
-      <ConfirmDialog
-        open={Boolean(crud.deleting)}
-        onOpenChange={(o) => !o && crud.setDeleting(null)}
-        description={`Supprimer ${crud.deleting?.name} ? Les notes et créneaux associés seront également supprimés.`}
-        onConfirm={() => {
-          const id = crud.deleting!.id
-          db.remove('courses', id)
-          db.replaceWhere('grades', (g) => g.courseId === id, [])
-          db.replaceWhere('timetable', (t) => t.courseId === id, [])
-          toast.success('Matière supprimée.')
-          crud.setDeleting(null)
-        }}
-      />
-    </>
-  )
+  return <>
+    <PageHeader eyebrow="Pédagogie" title={admin ? 'Cours et matières' : 'Mes cours'} description={admin ? 'Définissez les cours et leur coefficient ; affectez ensuite chaque cours à une classe et à un enseignant.' : 'Consultez uniquement les cours qui vous sont affectés.'} actions={admin && <Button onClick={() => { setEditing(null); setFormOpen(true) }} disabled={loading || Boolean(error)}><Plus />Nouveau cours</Button>} />
+    <div className="grid gap-4 sm:grid-cols-2"><StatCard label="Cours" value={String(courses.length)} icon={BookOpen} /><StatCard label="Total des coefficients" value={String(courses.reduce((sum, course) => sum + Number(course.coefficient), 0))} icon={Scale} tone="gold" /></div>
+    {loading && <p role="status" className="text-sm text-muted-foreground">Chargement des cours…</p>}
+    {error && <div role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm text-destructive">{error} <Button variant="outline" onClick={() => { void refresh().catch((cause: unknown) => setError(getApiErrorMessage(cause))) }}>Réessayer</Button></div>}
+    <Toolbar search={search} onSearch={setSearch} placeholder="Cours ou code…"><SimpleSelect ariaLabel="Filtrer par cycle" value={cycleFilter} onValueChange={setCycleFilter} options={[{ value: 'all', label: 'Tous les cycles' }, ...cycles.map((cycle) => ({ value: String(cycle.id_cycle), label: cycle.libelle }))]} /></Toolbar>
+    {!loading && !error && <DataTable rows={rows} columns={columns} getRowId={(course) => String(course.id_cours)} />}
+    <EntityFormDialog open={formOpen} onOpenChange={setFormOpen} title={editing ? `Modifier ${editing.intitule}` : 'Nouveau cours'} fields={fields} initial={{ intitule: editing?.intitule ?? '', code: editing?.code ?? '', cycle_ids: editing ? (editing.cycles ?? [{id_cycle:editing.id_cycle}]).map(c => c.id_cycle).join(',') : '', coefficient: String(editing?.coefficient ?? 2), domaine_bulletin: editing?.domaine_bulletin ?? '', sous_domaine_bulletin: editing?.sous_domaine_bulletin ?? '', actif: editing?.actif === false ? 'non' : 'oui' }} onSubmit={async (values) => {
+      const payload = { intitule: values.intitule, code: values.code.toUpperCase(), id_cycle: Number(values.cycle_ids.split(',')[0]), cycle_ids: values.cycle_ids.split(',').map(Number), coefficient: Number(values.coefficient), domaine_bulletin: values.domaine_bulletin || null, sous_domaine_bulletin: values.sous_domaine_bulletin || null, actif: values.actif === 'oui' }
+      if (editing) await updateSchoolCourse(editing.id_cours, payload)
+      else await createSchoolCourse(payload)
+      await refresh()
+      toast.success(editing ? 'Cours mis à jour.' : 'Cours créé.')
+    }} />
+    <ConfirmDialog open={Boolean(deleting)} onOpenChange={(open) => { if (!open) setDeleting(null) }} description={`Supprimer ${deleting?.intitule ?? ''} ? Un cours affecté à une classe ne peut pas être supprimé.`} onConfirm={() => {
+      if (!deleting) return
+      const id = deleting.id_cours
+      setDeleting(null)
+      void deleteSchoolCourse(id).then(refresh).then(() => toast.success('Cours supprimé.')).catch((cause: unknown) => toast.error(getApiErrorMessage(cause)))
+    }} />
+  </>
 }

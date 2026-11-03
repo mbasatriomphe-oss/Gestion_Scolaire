@@ -54,7 +54,7 @@ export function SidebarNav({ role, onNavigate }: { role: Role; onNavigate?: () =
           <Sparkles className="size-4 text-sidebar-primary" />
           Année scolaire
         </div>
-        <p className="mt-1 text-xs text-sidebar-foreground/60">Données synchronisées localement sur cet appareil.</p>
+        <p className="mt-1 text-xs text-sidebar-foreground/60">Vos pages et données sont limitées à votre rôle.</p>
       </div>
     </div>
   )

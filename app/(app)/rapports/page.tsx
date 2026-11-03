@@ -1,7 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { Download, ArrowDownRight, ArrowUpRight, Banknote, CircleDollarSign } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { ArrowDownRight, ArrowUpRight, CircleDollarSign, Download, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { FinanceChart } from '@/components/dashboard/charts'
@@ -9,87 +9,136 @@ import { PageHeader } from '@/components/app/page-header'
 import { Panel } from '@/components/app/panel'
 import { SimpleSelect } from '@/components/app/simple-select'
 import { StatCard } from '@/components/app/stat-card'
-import { downloadCSV, formatMoney } from '@/lib/format'
-import { useDB } from '@/lib/store'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { getApiErrorMessage } from '@/lib/api'
+import { getFinanceSummary, type FinanceSummary } from '@/lib/dashboard-api'
+import { downloadCSV, formatDate, formatMoney } from '@/lib/format'
+import { listReportYears, loadReportTransactions, type ReportExpense, type ReportPayment, type ReportYear } from '@/lib/report-api'
 
 export default function ReportsPage() {
-  const data = useDB()!
-  const availableYears = useMemo(() => Array.from(new Set([...data.payments.map((item) => item.date.slice(0, 4)), ...data.expenses.map((item) => item.date.slice(0, 4)), String(new Date().getFullYear())])).sort().reverse(), [data.payments, data.expenses])
-  const [year, setYear] = useState(String(new Date().getFullYear()))
-  const yearPayments = data.payments.filter((item) => item.date.startsWith(year))
-  const yearExpenses = data.expenses.filter((item) => item.date.startsWith(year))
-  const paidPayments = yearPayments.filter((item) => item.status === 'payé')
-  const paidExpenses = yearExpenses.filter((item) => item.status === 'payée')
-  const receipts = paidPayments.reduce((sum, item) => sum + item.amount, 0)
-  const expenses = paidExpenses.reduce((sum, item) => sum + item.amount, 0)
-  const pendingPayments = yearPayments.filter((item) => item.status === 'en attente')
-  const pendingExpenses = yearExpenses.filter((item) => item.status === 'en attente')
-  const pendingCount = pendingPayments.length + pendingExpenses.length
-  const pendingAmount = pendingPayments.reduce((sum, item) => sum + item.amount, 0) + pendingExpenses.reduce((sum, item) => sum + item.amount, 0)
-  const monthlyData = Array.from({ length: 12 }, (_, index) => {
-    const key = `${year}-${String(index + 1).padStart(2, '0')}`
-    const monthPayments = paidPayments.filter((item) => item.date.startsWith(key)).reduce((sum, item) => sum + item.amount, 0)
-    const monthExpenses = paidExpenses.filter((item) => item.date.startsWith(key)).reduce((sum, item) => sum + item.amount, 0)
-    return { month: new Intl.DateTimeFormat('fr-FR', { month: 'short' }).format(new Date(Number(year), index, 1)), recettes: monthPayments, depenses: monthExpenses }
-  })
-  const paymentCategories = ['Scolarité', 'Inscription', 'Cantine', 'Transport', 'Tenue'].map((category) => ({ category, amount: paidPayments.filter((item) => item.category === category).reduce((sum, item) => sum + item.amount, 0) })).filter((item) => item.amount > 0).sort((a, b) => b.amount - a.amount)
-  const expenseCategories = Array.from(new Set(data.expenses.map((item) => item.category))).map((category) => ({ category, amount: paidExpenses.filter((item) => item.category === category).reduce((sum, item) => sum + item.amount, 0) })).filter((item) => item.amount > 0).sort((a, b) => b.amount - a.amount)
-  const transactions = [
-    ...yearPayments.map((item) => ({ Date: item.date, Type: 'Recette', Libellé: `${item.category} · ${item.reference}`, Montant: item.amount, Statut: item.status })),
-    ...yearExpenses.map((item) => ({ Date: item.date, Type: 'Dépense', Libellé: `${item.category} · ${item.label}`, Montant: item.amount, Statut: item.status })),
-  ].sort((a, b) => a.Date.localeCompare(b.Date))
+  const [years, setYears] = useState<ReportYear[]>([])
+  const [yearId, setYearId] = useState('')
+  const [bilan, setBilan] = useState<FinanceSummary | null>(null)
+  const [payments, setPayments] = useState<ReportPayment[]>([])
+  const [expenses, setExpenses] = useState<ReportExpense[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [reload, setReload] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    listReportYears()
+      .then((records) => {
+        if (!active) return
+        const ordered = [...records].sort((a, b) =>
+          Number(b.etat === 'ouverte') - Number(a.etat === 'ouverte') || b.date_debut.localeCompare(a.date_debut),
+        )
+        setYears(ordered)
+        setYearId((current) => current || String(ordered[0]?.id_annee ?? ''))
+        if (ordered.length === 0) setLoading(false)
+      })
+      .catch((reason: unknown) => {
+        if (active) { setError(getApiErrorMessage(reason)); setLoading(false) }
+      })
+    return () => { active = false }
+  }, [reload])
+
+  useEffect(() => {
+    if (!yearId) return
+    let active = true
+    setLoading(true)
+    setError('')
+    Promise.all([getFinanceSummary(Number(yearId)), loadReportTransactions(Number(yearId))])
+      .then(([totals, transactions]) => {
+        if (!active) return
+        setBilan(totals)
+        setPayments(transactions.payments)
+        setExpenses(transactions.expenses)
+      })
+      .catch((reason: unknown) => {
+        if (active) setError(getApiErrorMessage(reason))
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => { active = false }
+  }, [yearId, reload])
+
+  const transactions = useMemo(() => [
+    ...payments.map((item) => ({
+      id: `p${item.id_paiement}`,
+      date: item.date_paiement.slice(0, 10),
+      type: 'Recette',
+      label: item.reference_recu ?? `Paiement ${item.id_paiement}`,
+      amount: Number(item.montant),
+    })),
+    ...expenses.map((item) => ({
+      id: `d${item.id_depense}`,
+      date: item.date_depense.slice(0, 10),
+      type: 'Dépense',
+      label: `${item.categorie} · ${item.libelle}`,
+      amount: Number(item.montant),
+    })),
+  ].sort((a, b) => b.date.localeCompare(a.date)), [payments, expenses])
+  const selectedYear = years.find((item) => String(item.id_annee) === yearId)
+  const monthly = bilan?.mensuel.map((item) => ({
+    month: new Intl.DateTimeFormat('fr-FR', { month: 'short' }).format(new Date(`${item.mois}-01T12:00:00`)),
+    recettes: item.encaisse,
+    depenses: item.depenses,
+  })) ?? []
 
   return (
     <>
-      <PageHeader eyebrow="Finances" title="Rapports financiers" description="Synthèse des encaissements, dépenses et opérations en attente." actions={
+      <PageHeader eyebrow="Finances" title="Rapport financier" description="Encaissements, dépenses et frais scolaires enregistrés dans la base." actions={
         <>
-          <SimpleSelect ariaLabel="Année du rapport" value={year} onValueChange={setYear} options={availableYears.map((value) => ({ value, label: value }))} />
-          <Button variant="outline" onClick={() => { downloadCSV(`rapport-financier-${year}.csv`, transactions); if (transactions.length) toast.success('Rapport exporté.'); else toast.info('Aucune opération à exporter pour cette année.') }}><Download />Exporter le rapport</Button>
+          {years.length > 0 && <SimpleSelect ariaLabel="Année scolaire du rapport" value={yearId} onValueChange={setYearId} options={years.map((item) => ({ value: String(item.id_annee), label: item.libelle }))} />}
+          <Button variant="outline" disabled={!transactions.length} onClick={() => {
+            downloadCSV(`rapport-financier-${selectedYear?.libelle ?? 'annee'}.csv`, transactions.map((item) => ({ Date: item.date, Type: item.type, Libellé: item.label, Montant: item.amount })))
+            toast.success('Rapport exporté.')
+          }}><Download />Exporter</Button>
         </>
       } />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Recettes encaissées" value={formatMoney(receipts, data.settings.currency)} icon={ArrowDownRight} tone="success" />
-        <StatCard label="Dépenses réglées" value={formatMoney(expenses, data.settings.currency)} icon={ArrowUpRight} tone="danger" delay={60} />
-        <StatCard label="Solde net" value={formatMoney(receipts - expenses, data.settings.currency)} icon={CircleDollarSign} tone={receipts >= expenses ? 'success' : 'danger'} delay={120} />
-        <StatCard label="En attente" value={formatMoney(pendingAmount, data.settings.currency)} icon={Banknote} hint={`${pendingCount} opération(s)`} tone="gold" delay={180} />
-      </div>
-      <div className="grid gap-4 xl:grid-cols-3">
-        <Panel title="Évolution mensuelle" description={`Opérations réglées en ${year}`} className="xl:col-span-2"><FinanceChart data={monthlyData} currency={data.settings.currency} /></Panel>
-        <Panel title="À surveiller" description="Opérations non réglées sur la période">
-          <div className="flex flex-col gap-4">
-            <div className="flex items-end justify-between border-b pb-3"><span className="text-sm text-muted-foreground">Paiements élèves</span><span className="font-semibold tabular-nums">{formatMoney(pendingPayments.reduce((sum, item) => sum + item.amount, 0), data.settings.currency)}</span></div>
-            <div className="flex items-end justify-between border-b pb-3"><span className="text-sm text-muted-foreground">Dépenses à régler</span><span className="font-semibold tabular-nums">{formatMoney(pendingExpenses.reduce((sum, item) => sum + item.amount, 0), data.settings.currency)}</span></div>
-            <p className="text-xs text-muted-foreground">Les opérations annulées ne sont pas comptées dans les recettes ou dépenses réglées.</p>
-          </div>
-        </Panel>
-      </div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Recettes par nature" description={`Encaissements confirmés · ${year}`}><CategoryBreakdown items={paymentCategories} currency={data.settings.currency} /></Panel>
-        <Panel title="Dépenses par catégorie" description={`Dépenses réglées · ${year}`}><CategoryBreakdown items={expenseCategories} currency={data.settings.currency} /></Panel>
-      </div>
-      <Panel title="Période couverte" description={`${transactions.length} opération(s) enregistrée(s) en ${year}`}>
-        <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-          <div><p className="text-xs text-muted-foreground">Paiements</p><p className="mt-1 font-semibold">{yearPayments.length}</p></div>
-          <div><p className="text-xs text-muted-foreground">Dépenses</p><p className="mt-1 font-semibold">{yearExpenses.length}</p></div>
-          <div><p className="text-xs text-muted-foreground">Recettes réglées</p><p className="mt-1 font-semibold">{formatMoney(receipts, data.settings.currency)}</p></div>
-          <div><p className="text-xs text-muted-foreground">Dépenses réglées</p><p className="mt-1 font-semibold">{formatMoney(expenses, data.settings.currency)}</p></div>
-        </div>
-      </Panel>
-    </>
-  )
-}
 
-function CategoryBreakdown({ items, currency }: { items: Array<{ category: string; amount: number }>; currency: string }) {
-  const maximum = Math.max(1, ...items.map((item) => item.amount))
-  if (!items.length) return <p className="py-8 text-center text-sm text-muted-foreground">Aucune opération réglée sur cette période.</p>
-  return (
-    <ul className="flex flex-col gap-4">
-      {items.map((item) => (
-        <li key={item.category}>
-          <div className="mb-1.5 flex items-center justify-between gap-3 text-sm"><span>{item.category}</span><span className="font-medium tabular-nums">{formatMoney(item.amount, currency)}</span></div>
-          <div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-chart-2" style={{ width: `${(item.amount / maximum) * 100}%` }} /></div>
-        </li>
-      ))}
-    </ul>
+      {loading && <p role="status" className="text-sm text-muted-foreground">Chargement du rapport…</p>}
+      {error && <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-destructive/40 p-4 text-sm text-destructive"><span>{error}</span><Button variant="outline" onClick={() => setReload((value) => value + 1)}>Réessayer</Button></div>}
+      {!loading && !error && years.length === 0 && <p className="rounded-lg border p-4 text-sm text-muted-foreground">Créez d’abord une année scolaire pour obtenir un rapport.</p>}
+
+      {bilan && !error && years.length > 0 && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard label="Encaissements" value={formatMoney(bilan.total_encaisse, 'USD')} icon={ArrowDownRight} tone="success" />
+            <StatCard label="Dépenses" value={formatMoney(bilan.total_depenses, 'USD')} icon={ArrowUpRight} tone="danger" delay={60} />
+            <StatCard label="Solde" value={formatMoney(bilan.solde, 'USD')} icon={CircleDollarSign} tone={bilan.solde >= 0 ? 'success' : 'danger'} delay={120} />
+            <StatCard label="Frais restant à percevoir" value={formatMoney(bilan.reste_du, 'USD')} icon={Wallet} tone="gold" delay={180} />
+          </div>
+          <div className="grid gap-4 xl:grid-cols-3">
+            <Panel title="Évolution mensuelle" description={selectedYear?.libelle ?? 'Année scolaire'} className="xl:col-span-2"><FinanceChart data={monthly} currency="USD" /></Panel>
+            <Panel title="Scolarité par semestre" description="Frais dus et encaissés">
+              <div className="space-y-4 text-sm">
+                {bilan.semestres.map((semester) => (
+                  <div key={semester.id_semestre} className="rounded-xl border p-3">
+                    <p className="font-semibold">{semester.libelle}</p>
+                    <p className="mt-1">Dû : {formatMoney(semester.montant_du, 'USD')}</p>
+                    <p>Encaissé : {formatMoney(semester.encaisse, 'USD')}</p>
+                    <p>Reste : {formatMoney(semester.reste_du, 'USD')}</p>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          </div>
+          <Panel title="Mouvements" description={`${transactions.length} écriture(s) pour ${selectedYear?.libelle ?? 'l’année'}`}>
+            <div className="max-h-96 overflow-auto">
+              <Table>
+                <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Référence / libellé</TableHead><TableHead className="text-right">Montant</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {transactions.map((item) => <TableRow key={item.id}><TableCell>{formatDate(item.date)}</TableCell><TableCell>{item.type}</TableCell><TableCell>{item.label}</TableCell><TableCell className="text-right tabular-nums">{formatMoney(item.amount, 'USD')}</TableCell></TableRow>)}
+                  {transactions.length === 0 && <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">Aucun mouvement enregistré.</TableCell></TableRow>}
+                </TableBody>
+              </Table>
+            </div>
+          </Panel>
+        </>
+      )}
+    </>
   )
 }
